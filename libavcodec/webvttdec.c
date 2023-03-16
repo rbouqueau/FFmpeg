@@ -87,10 +87,19 @@ static int webvtt_decode_frame(AVCodecContext *avctx, AVSubtitle *sub,
     const char *ptr = avpkt->data;
     FFASSDecoderContext *s = avctx->priv_data;
     AVBPrint buf;
+#if 0 //Romain: I don't think this is the right way since it goes thru ASS ()
+    size_t settings_size, styling_size;
+    const uint8_t *settings = av_packet_get_side_data(avpkt, AV_PKT_DATA_WEBVTT_SETTINGS, &settings_size);
+    const uint8_t *styling = av_packet_get_side_data/*Romain: av_stream_get_side_data*/(avpkt, AV_PKT_DATA_WEBVTT_STYLING, &styling_size);
+    if (settings)
+        printf("Romain: settings: %s\n", (char*)settings);
+    if (styling)
+        printf("Romain: styling : %s\n", (char*)styling);
+#endif
 
-    av_bprint_init(&buf, 0, AV_BPRINT_SIZE_UNLIMITED);
+    av_bprint_init(&buf, 0, AV_BPRINT_SIZE_UNLIMITED); //Romain: here, we should map the AV_PKT_DATA_WEBVTT_STYLING to ASS
     if (ptr && avpkt->size > 0 && !webvtt_event_to_ass(&buf, ptr))
-        ret = ff_ass_add_rect(sub, buf.str, s->readorder++, 0, NULL, NULL);
+        ret = ff_ass_add_rect(sub, buf.str, s->readorder++, 0, NULL, NULL); //Romain:     dialog = ff_ass_get_dialog(ctx->readorder++, 0, NULL, NULL, buf.str);
     av_bprint_finalize(&buf, NULL);
     if (ret < 0)
         return ret;

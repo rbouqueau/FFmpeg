@@ -61,6 +61,9 @@ static int webvtt_read_header(AVFormatContext *s)
 {
     WebVTTContext *webvtt = s->priv_data;
     AVBPrint cue;
+    //Romain
+    //const char *styling = NULL;
+    //size_t styling_len = 0;
     int res = 0;
     AVStream *st = avformat_new_stream(s, NULL);
 
@@ -94,6 +97,76 @@ static int webvtt_read_header(AVFormatContext *s)
             !strncmp(p, "WEBVTT", 6) ||
             !strncmp(p, "NOTE", 4))
             continue;
+
+//Romain: move back below
+#define SET_SIDE_DATA(name, type) do {                                  \
+    if (name##_len) {                                                   \
+        uint8_t *buf = av_packet_new_side_data(sub, type, name##_len);  \
+        if (!buf) {                                                     \
+            res = AVERROR(ENOMEM);                                      \
+            goto end;                                                   \
+        }                                                               \
+        memcpy(buf, name, name##_len);                                  \
+    }                                                                   \
+} while (0)
+
+        /* global styling */
+#if 0
+        styling = p;
+        while (!strncmp(p, "STYLE", 5)) {
+            size_t len;
+
+            while ((len = strcspn(p, "\r\n"))) {
+                p += len + 1;
+                styling_len += len + 1;
+            }
+
+            if (*p == 0)
+                break;
+
+            /* empty lines */
+            len = strspn(p, "\r\n");
+            p += len + 1;
+            styling_len += len + 1;
+        }
+        if (styling_len > 0)
+            continue;
+#else
+        if (!strncmp(p, "STYLE", 5)) {
+            size_t buf1_len = 0;
+            //Romain: MAYBE WE SHOULD try to export where webvtt dec avcodec is not needed? e.g. create the teletext encoder?
+            //st->codecpar->extradata;
+            //st->codecpar->extradata_size;
+            uint8_t *buf1 = av_stream_get_side_data(st, AV_PKT_DATA_WEBVTT_STYLING, &buf1_len);
+            if (!buf1) {
+                // new
+                buf1_len = strlen(p) + 1;
+                buf1 = av_stream_new_side_data(st, AV_PKT_DATA_WEBVTT_STYLING, buf1_len);
+                if (!buf1) {
+                    res = AVERROR(ENOMEM);
+                    goto end;
+                }
+                memcpy(buf1, p, buf1_len);
+            } else {
+                // append
+                size_t buf2_len = buf1_len + strlen(p) + 1;
+                uint8_t *buf2 = av_malloc(buf2_len);
+                if (!buf2) {
+                    res = AVERROR(ENOMEM);
+                    goto end;
+                }
+                memcpy(buf2, buf1, buf1_len);
+                memcpy(buf2+buf1_len, p, buf2_len-buf1_len); //Romain: does not happen: does buf 1 contains a trailing 0?
+                res = av_stream_add_side_data(st, AV_PKT_DATA_WEBVTT_STYLING, buf2, buf2_len);
+                if (res < 0) {
+                    res = AVERROR(ENOMEM);
+                    goto end;
+                }
+            }
+
+            continue;
+        }
+#endif
 
         /* optional cue identifier (can be a number like in SRT or some kind of
          * chaptering id) */
@@ -146,19 +219,11 @@ static int webvtt_read_header(AVFormatContext *s)
         sub->pts = ts_start;
         sub->duration = ts_end - ts_start;
 
-#define SET_SIDE_DATA(name, type) do {                                  \
-    if (name##_len) {                                                   \
-        uint8_t *buf = av_packet_new_side_data(sub, type, name##_len);  \
-        if (!buf) {                                                     \
-            res = AVERROR(ENOMEM);                                      \
-            goto end;                                                   \
-        }                                                               \
-        memcpy(buf, name, name##_len);                                  \
-    }                                                                   \
-} while (0)
-
         SET_SIDE_DATA(identifier, AV_PKT_DATA_WEBVTT_IDENTIFIER);
         SET_SIDE_DATA(settings,   AV_PKT_DATA_WEBVTT_SETTINGS);
+        //Romain: we attach it to the stream instead
+        //if (styling_len > 0)
+        //    SET_SIDE_DATA(styling, AV_PKT_DATA_WEBVTT_STYLING);
     }
 
     ff_subtitles_queue_finalize(s, &webvtt->q);

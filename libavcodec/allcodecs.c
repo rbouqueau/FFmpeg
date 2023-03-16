@@ -723,6 +723,7 @@ extern const FFCodec ff_subrip_encoder;
 extern const FFCodec ff_subrip_decoder;
 extern const FFCodec ff_subviewer_decoder;
 extern const FFCodec ff_subviewer1_decoder;
+extern const FFCodec ff_teletext_encoder;
 extern const FFCodec ff_text_encoder;
 extern const FFCodec ff_text_decoder;
 extern const FFCodec ff_ttml_encoder;

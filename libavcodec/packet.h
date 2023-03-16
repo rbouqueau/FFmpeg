@@ -203,6 +203,12 @@ enum AVPacketSideDataType {
     AV_PKT_DATA_WEBVTT_SETTINGS,
 
     /**
+     * The optional settings (rendering instructions) that are global
+     * to a WebVTT document.
+     */
+    AV_PKT_DATA_WEBVTT_STYLING, //Romain: see if other codecs do this, or if they apply styling on the fly
+
+    /**
      * A list of zero terminated key/value strings. There is no end marker for
      * the list, so it is required to rely on the side data size to stop. This
      * side data includes updated metadata which appeared in the stream.

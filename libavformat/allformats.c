@@ -444,6 +444,7 @@ extern const AVInputFormat  ff_swf_demuxer;
 extern const AVOutputFormat ff_swf_muxer;
 extern const AVInputFormat  ff_tak_demuxer;
 extern const AVOutputFormat ff_tee_muxer;
+extern const AVOutputFormat ff_teletext_muxer;
 extern const AVInputFormat  ff_tedcaptions_demuxer;
 extern const AVOutputFormat ff_tg2_muxer;
 extern const AVOutputFormat ff_tgp_muxer;
