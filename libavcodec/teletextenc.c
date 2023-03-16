@@ -34,7 +34,6 @@
 #include "libavutil/internal.h"
 #include "dvbtxt.h"
 #include "ass_split.h"
-#include <time.h> //Romain: ??? was for test?
 #define ROMAIN_DISABLE_MPEGTS 1
 /*//Romain: check mmaloc are necessary + return value of malloc and propagate error
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
@@ -45,7 +44,7 @@
 #define NB_ENHANCEMENT_PACKET 3 
 
 //////////////////////////////////////////////////////////////////////
-// Bitwise Operations Romain => move in common file if nedded by newfor?
+// Bitwise Operations
 //////////////////////////////////////////////////////////////////////
 
 #define ODD_MASK 0x7F
@@ -121,7 +120,7 @@ static struct __page_header_packet {
     uint8_t control_bits_C7__C10;       /**Control bits C7 to C10*/
     uint8_t control_bits_C11__C14;      /**Control bits C11 to C14*/
     uint8_t data_bytes[32];             /**Odd parity coded*/
-} const PageHeaderPacket_default = {     //Default initialization of the struct
+} const PageHeaderPacket_default = {    //Default initialization of the struct
     .page_number_units      = 0x57,     //0x0F before hamming 8/4 ==> 0xEA before the swap ==> 0x57
     .page_number_tens       = 0x57,     //0x0F 
     .subcode_S1             = 0x57,     //0x0F
@@ -253,7 +252,7 @@ static void setControlBits(ControlBits *control_bits, uint8_t C4__C11_bits, uint
  * 
  * @param ttxPacket Input Teletext packet
  */
-static void ttxPacketStuffing(TeletextPacket *ttxPacket) { //Romain: MPEG2-TS
+static void ttxPacketStuffing(TeletextPacket *ttxPacket) {
     ttxPacket->framing_code = 0xFF;
     ttxPacket->magazine = 0xFF;
     ttxPacket->packet_number = 0xFF;
@@ -416,26 +415,11 @@ static uint8_t/*bool*/ setDisplayablePacket(TeletextPage *ttxPage, uint8_t rowNu
  * @param outputText Return the formatted text
  * @param addDayTime Adds the current date and time at the end of the text, this will erase the last 14 bytes.
  */
-static void formatHeaderText(const char *inputText, uint8_t outputText[32], uint8_t/*bool*/ addDayTime/*Romain: remove option that is only for debug?*/) {
+static void formatHeaderText(const char *inputText, uint8_t outputText[32]) {
     uint8_t maxTextSize = 32;
     const uint8_t dateSize = 14;
     const uint8_t textSize = strlen(inputText);
 
-    //Adding the current date and time //Romain: I don't see how this and #include <time.h> are necessary....
-    if(addDayTime) {
-        char buff[64] = { 0 };
-        time_t timestamp = time( NULL );
-        struct tm *now = localtime( & timestamp );
-        printf("%02d.%02d.%02d:%02d:%02d\n",now->tm_mday,now->tm_mon+1,now->tm_hour,now->tm_min,now->tm_sec);
-        sprintf(buff,"%02d.%02d.%02d:%02d:%02d\n",now->tm_mday,now->tm_mon+1,now->tm_hour,now->tm_min,now->tm_sec);
-
-        //Update max text size
-        maxTextSize = maxTextSize - dateSize;
-        //Copy the date
-        for(int j = maxTextSize;j<(maxTextSize+dateSize);j++) {
-            outputText[j] = buff[j-maxTextSize];
-        }
-    }
     for(int i = 0; i<maxTextSize; i++) {
         if(textSize <= i) {
             outputText[i] = SPAC_ATTR_SPACE; //Adding space
@@ -453,12 +437,11 @@ static void formatHeaderText(const char *inputText, uint8_t outputText[32], uint
  * @return char* String with encoded special characters according to the national option
  */
 static char *applyNationalOption(const char *inputText, uint16_t inputTextSize, uint8_t/*bool*/ C12_C13_C14_nationalOption[3]) {
-    uint8_t nationalOptionVal = C12_C13_C14_nationalOption[0] << 2 | C12_C13_C14_nationalOption[1] << 1 | C12_C13_C14_nationalOption[2];
-
     char substr[5];
     uint8_t reduceSize = 0;
     char *outputText = av_malloc(inputTextSize + 1/*terminal '\0'*/);
     uint8_t/*bool*/ speCharFound = 0;
+    uint8_t nationalOptionVal = C12_C13_C14_nationalOption[0] << 2 | C12_C13_C14_nationalOption[1] << 1 | C12_C13_C14_nationalOption[2];
 
     for(uint16_t i = 0; i<inputTextSize; i++) {
         for(uint8_t k = 0; k<13; k++) {//Check if the character is in the latin national option subset table 
@@ -468,7 +451,7 @@ static char *applyNationalOption(const char *inputText, uint16_t inputTextSize, 
             if(!strcmp(latinNationalOptionSub_set[nationalOptionVal][k],substr)) {
                 speCharFound = 0; //We found a special character/string to be replaced
                 outputText[i-reduceSize] = natoptValues[k];
-                reduceSize += speCharSize - 1; //compute the space gainedby replacing this special character
+                reduceSize += speCharSize - 1; //compute the space gained by replacing this special character
                 i += speCharSize - 1 ;
 
                 outputText = av_realloc(outputText, sizeof(char) * ((inputTextSize+1) - reduceSize)); //Reduce the memory size, +1 to get the space to put an \0 at the end
@@ -489,7 +472,7 @@ static char *applyNationalOption(const char *inputText, uint16_t inputTextSize, 
  * 
  * @param outputText Contains the formatted line of Teletext
  * @param index Index into the input subtitle string (inputText)
- * @param rowCharacterUsage Number of charecters used on this Teletext line
+ * @param rowCharacterUsage Number of characters used on this Teletext line
  * @param inputText Input subtitle string
  * @param textAspect Struct that defines the Teletext aspect (color, padding) //Romain: see how this is used
  * @param startOffset Number of spacings attributes before the text 
@@ -653,9 +636,9 @@ static void formatDisplayableText(const char *inputText, uint16_t inputTextSize,
 
 //Struct used to manage the display of Teletext page
 typedef struct {
-    TeletextPage **pages; //Array of Teletext pages to be displayed
-    uint8_t nbPages;    //Number of pages to be displayed
-    uint8_t firstPageTotPackets;    //Total number of packets to be displayed for the page in first position of the array
+    TeletextPage **pages;            //Array of Teletext pages to be displayed
+    uint8_t nbPages;                 //Number of pages to be displayed
+    uint8_t firstPageTotPackets;     //Total number of packets to be displayed for the page in first position of the array
     uint8_t firstPageWrittenPackets; //Number of packet already written for the page in first position of the array
 } PageWriterManager;
 
@@ -740,7 +723,6 @@ static struct __pes_data_field {
 typedef struct __pes_data_field PESDataField;
 //#endif
 
-//Romain: I feel this pageWritingManagement() is a shitshow
 static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *pb) {
     static uint8_t/*bool*/ first_call = 0;
     PESDataField dataField;
@@ -774,7 +756,7 @@ static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *p
             dataField.teletext_packet[2] = ttxPacket;
             pageWrMng->firstPageWrittenPackets++;
         }
-        //Romain: else
+
         if(pageWrMng->pages[0]->hasPageLinking) {
             //Write linking page
             pageWrMng->pages[0]->hasPageLinking = 0; //clear
@@ -861,10 +843,6 @@ static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *p
         for(int ttxIndex=0; ttxIndex<43; ttxIndex++) {
             put_bits(pb, 8, *(ptrTtx + ttxIndex));
         }
-                    { //Romain
-                        uint8_t *romain = ptrTtx + 3;
-                        printf("Romain: telx e2%d: 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X\n", packIndex, *(romain+0), *(romain+1), *(romain+2), *(romain+3), *(romain+4), *(romain+5), *(romain+6), *(romain+7));
-                    }
     }
 }
 
@@ -883,7 +861,6 @@ typedef struct {
 } TeletextContext;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////Romain: review ASSCodesCallbacks => add color etc., cf teletext_callbacks below
 static void teletext_text_cb(void *priv, const char *text, int len) {
     TeletextContext *s = priv;
     uint8_t dataHeaderSubtitlePage[32] = {0};
@@ -893,7 +870,7 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
     uint8_t/*bool*/ lang[3] = {1,0,0};
 
     setControlBits(&controlbitSubtitlePage, 0xBD/*1011 1101*/, lang);
-    formatHeaderText("Teletext Page", dataHeaderSubtitlePage, 0);
+    formatHeaderText("Teletext Page", dataHeaderSubtitlePage);
     setHeaderPacket(s->subtitle_page, s->subtitle_page_num, 0x0000, controlbitSubtitlePage, dataHeaderSubtitlePage);
 
     //TODO styling: convert_ttml_aspect_to_Teletext_aspect(&currentSubtitle[dispsub], &textAspectSubtitlePage);
@@ -906,7 +883,7 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
     av_free(dispTextSubtitlePage.formattedText);
     addPageToWriter(&s->pageWRMng, s->subtitle_page); //add the subtitle page to the writer
 
-#if 0 //Romain: assume this is not needed for newfor
+#if 0 //FIXME: this may not be needed for newfor but this is needed for MPEG-TS
     //Add a new page header to display the subtitle page
     setHeaderPacket(s->home_page, s->home_page_num, 0x0000, controlbitHomePage, dataHeaderHomePage);
     setDisplayablePacket(s->home_page, dispTextHomePage.row, byteDispHomePage);
@@ -947,7 +924,7 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
         controlbitHomePage.C11_magazineSerial = 1;
         controlbitHomePage.C12_C13_C14_nationalOption[0] = 1;
 
-        formatHeaderText(header_text, dataHeaderHomePage, 0);
+        formatHeaderText(header_text, dataHeaderHomePage);
         setHeaderPacket(s->home_page, s->home_page_num, 0x0000, controlbitHomePage, dataHeaderHomePage);
         formatDisplayableText(subtitle_text, strlen(subtitle_text), &dispTextHomePage, &textAspectHomePage, controlbitHomePage.C6_subtitle, controlbitHomePage.C12_C13_C14_nationalOption);
         memcpy(byteDispHomePage, dispTextHomePage.formattedText, 40);
