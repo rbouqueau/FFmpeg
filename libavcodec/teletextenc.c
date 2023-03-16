@@ -34,11 +34,13 @@
 #include "libavutil/internal.h"
 #include "dvbtxt.h"
 #include "ass_split.h"
-#define ROMAIN_DISABLE_MPEGTS 1
 /*//Romain: check mmaloc are necessary + return value of malloc and propagate error
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
         return AVERROR(ENOMEM);
 */
+
+//We use the MPEG2-TS payload format as the reference format.
+
 #define CHARACTER_PER_ROW 40 //Max number of characters per row
 #define NB_ROW 25 //Max numer of row 
 #define NB_ENHANCEMENT_PACKET 3 
@@ -417,7 +419,6 @@ static uint8_t/*bool*/ setDisplayablePacket(TeletextPage *ttxPage, uint8_t rowNu
  */
 static void formatHeaderText(const char *inputText, uint8_t outputText[32]) {
     uint8_t maxTextSize = 32;
-    const uint8_t dateSize = 14;
     const uint8_t textSize = strlen(inputText);
 
     for(int i = 0; i<maxTextSize; i++) {
@@ -691,8 +692,6 @@ static uint8_t/*bool*/ addPageToWriter(PageWriterManager *pageWrMng, TeletextPag
     }
 }
 
-//Romain: what follows seems all related to MPEG2-TS: remove it when the general concept is tested
-//Romain: #ifndef ROMAIN_DISABLE_MPEGTS
 //Timing reference between each packets
 #define PES_PACKET_TELETEXT_TIMING_REF 40E-3 //40 ms
 #define PES_DATA_FIELD_SIZE 139 //Size of the packet = 139 bytes 
@@ -721,7 +720,6 @@ static struct __pes_data_field {
     .line_offset_params = {CONCAT_BITS_LINE_OFFSET_PARAM(0x1,0x1F),CONCAT_BITS_LINE_OFFSET_PARAM(0x1,0x1F),CONCAT_BITS_LINE_OFFSET_PARAM(0x1,0x1F)},
 };
 typedef struct __pes_data_field PESDataField;
-//#endif
 
 static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *pb) {
     static uint8_t/*bool*/ first_call = 0;
@@ -735,17 +733,13 @@ static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *p
     }
 
     //init a data field and teletext packet
-#ifndef ROMAIN_DISABLE_MPEGTS
     dataField = PESDataField_default; //initialize data field structure //Romain: TS related
-#endif
     ttxPacket = TeletextPacket_default; //initializeteletext packet structure
 
     if(pageWrMng->nbPages > 0) { //check if there is a page to write
         if(pageWrMng->firstPageWrittenPackets == 0) { // header to be written
-#ifndef ROMAIN_DISABLE_MPEGTS
             dataField.data_unit_id[0] = DATA_UNIT_EBU_TELETEXT_SUBTITLE;
             dataField.line_offset_params[0] = CONCAT_BITS_LINE_OFFSET_PARAM(0x1,0xA);
-#endif
 
             //fill header packet
             setMagazine_PacketNumber(&ttxPacket, (pageWrMng->pages[0]->pageNumber & 0x0700)>>8, 0); //Romain: needed in the general case, not only MPEG-TS
@@ -827,17 +821,13 @@ static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *p
     }   
 
     //Writing data
-#ifndef ROMAIN_DISABLE_MPEGTS
     put_bits(pb, 8, dataField.data_identifier);
-#endif
 
-    for(int packIndex=0; packIndex<3; packIndex++) { //go through the data field //Romain: this is TS related and sends several packets (but how many pages?)
+    for(int packIndex=0; packIndex<3; packIndex++) { //go through the data field
         uint8_t *ptrTtx;
-#ifndef ROMAIN_DISABLE_MPEGTS
         put_bits(pb, 8, dataField.data_unit_id[packIndex]);
         put_bits(pb, 8, dataField.data_unit_length[packIndex]);
         put_bits(pb, 8, dataField.line_offset_params[packIndex]);
-#endif
         ptrTtx = &dataField.teletext_packet[packIndex].framing_code;
         //Write ttx packet by incrementing the ptr to the first element of the structure 
         for(int ttxIndex=0; ttxIndex<43; ttxIndex++) {
@@ -883,12 +873,8 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
     av_free(dispTextSubtitlePage.formattedText);
     addPageToWriter(&s->pageWRMng, s->subtitle_page); //add the subtitle page to the writer
 
-#if 0 //FIXME: this may not be needed for newfor but this is needed for MPEG-TS
     //Add a new page header to display the subtitle page
-    setHeaderPacket(s->home_page, s->home_page_num, 0x0000, controlbitHomePage, dataHeaderHomePage);
-    setDisplayablePacket(s->home_page, dispTextHomePage.row, byteDispHomePage);
     addPageToWriter(&s->pageWRMng, s->home_page);
-#endif
 }
 
 static void teletext_new_line_cb(void *priv, int forced) {
@@ -911,29 +897,6 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
     s->pageWRMng = (PageWriterManager){0};
 
     init_put_bits(&s->pb, buf, bufsize);
-
-    if(s->home_page) {
-        const char *header_text = "Teletext";
-        const char *subtitle_text = "Teletext Page";
-        ControlBits controlbitHomePage = ControlBits_default;
-        uint8_t dataHeaderHomePage[32];
-        uint8_t byteDispHomePage[40];
-        TeletextAspect textAspectHomePage = {SPAC_ATTR_ALPHA_WHITE, SPAC_ATTR_NORMAL_SIZE, 0.5, CENTER};
-        TeletextDispText dispTextHomePage = {0};
-
-        controlbitHomePage.C11_magazineSerial = 1;
-        controlbitHomePage.C12_C13_C14_nationalOption[0] = 1;
-
-        formatHeaderText(header_text, dataHeaderHomePage);
-        setHeaderPacket(s->home_page, s->home_page_num, 0x0000, controlbitHomePage, dataHeaderHomePage);
-        formatDisplayableText(subtitle_text, strlen(subtitle_text), &dispTextHomePage, &textAspectHomePage, controlbitHomePage.C6_subtitle, controlbitHomePage.C12_C13_C14_nationalOption);
-        memcpy(byteDispHomePage, dispTextHomePage.formattedText, 40);
-        setDisplayablePacket(s->home_page, dispTextHomePage.row, byteDispHomePage); //Will use only 1 line //Romain: do we ever send this page? is it useful?
-
-        av_free(dispTextHomePage.formattedText); //Formatted text needs to be freed
-        av_free(s->home_page);
-        s->home_page = NULL;
-    }
 
     for(i=0; i<sub->num_rects; i++) {
         int ret;
@@ -1008,6 +971,27 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
     //Subtitle Page
     s->subtitle_page_num = 0x888; //TODO: num should be a user option?
     s->subtitle_page = av_calloc(1, sizeof(TeletextPage));
+
+    if(s->home_page) {
+        const char *header_text = "Teletext";
+        const char *subtitle_text = "Teletext Page";
+        ControlBits controlbitHomePage = ControlBits_default;
+        uint8_t dataHeaderHomePage[32];
+        uint8_t byteDispHomePage[40];
+        TeletextAspect textAspectHomePage = {SPAC_ATTR_ALPHA_WHITE, SPAC_ATTR_NORMAL_SIZE, 0.5, CENTER};
+        TeletextDispText dispTextHomePage = {0};
+
+        controlbitHomePage.C11_magazineSerial = 1;
+        controlbitHomePage.C12_C13_C14_nationalOption[0] = 1;
+
+        formatHeaderText(header_text, dataHeaderHomePage);
+        setHeaderPacket(s->home_page, s->home_page_num, 0x0000, controlbitHomePage, dataHeaderHomePage);
+        formatDisplayableText(subtitle_text, strlen(subtitle_text), &dispTextHomePage, &textAspectHomePage, controlbitHomePage.C6_subtitle, controlbitHomePage.C12_C13_C14_nationalOption);
+        memcpy(byteDispHomePage, dispTextHomePage.formattedText, 40);
+        setDisplayablePacket(s->home_page, dispTextHomePage.row, byteDispHomePage); //Will use only 1 line //Romain: do we ever send this page? is it useful?
+
+        av_free(dispTextHomePage.formattedText); //Formatted text needs to be freed
+    }
 
     return 0;
 }

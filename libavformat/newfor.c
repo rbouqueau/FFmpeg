@@ -73,23 +73,21 @@ static int newfor_read(URLContext *h, uint8_t *buf, int size)
 static int newfor_write(URLContext *h, const uint8_t *buf, int size)
 {
     NewforContext *s = h->priv_data;
-    const int teletext_pkt_size = 40/*teletext_page_size*/ + 3/*header*/;
+    const int teletext_pkt_size = 3/*pes_field*/ + 40/*teletext_page_size*/ + 3/*header*/;
     const unsigned n = size / teletext_pkt_size;
     uint8_t page_init[5] = { 0x0E, 0x15, 0, 0 , 0 };
     uint8_t pages[2/*header*/ + 7/*@n max val*/ * (2/*RH RL*/ + 40/*data*/)] = {0};
     const uint8_t off_air[] = { 0x18 };
     const uint8_t on_air[] = { 0x10 };
     int written = 0;
-    //FIXME: input: WE MISS THE PAGE NUM... IS THIS WHY THE HOME PAGE IS SENT OVER AND OVER?
-    //of should we rewrite it here? Is it shared from the encoding?
-    const int page_num = 888; //TODO?: pageWrMng->pages[0]->pageNumber & 0x0700)>>8
+    const int page_num = 888;
     int row_num = 1;
 
     av_log(h, AV_LOG_TRACE, "newfor write off air + data + on air\n");
-    av_assert0(size % teletext_pkt_size == 0);
+    av_assert0((size - 1/*data_identifier*/) % teletext_pkt_size == 0);
     av_assert0(n <= 7);
 
-    // off air
+    //off air
     written = s->tcp_conn->prot->url_write(s->tcp_conn, off_air, sizeof(off_air));
     if (written != sizeof(off_air)) {
         av_log(s, AV_LOG_ERROR, "Unable to write off-air command\n");
@@ -106,14 +104,14 @@ static int newfor_write(URLContext *h, const uint8_t *buf, int size)
         return AVERROR(EIO);
     }
 
-    // send data
+    //send data
     pages[0] = 0x0F;
     pages[1] = hamming_8_4_coding(n); //TODO: clear bits = 8?
     for(unsigned i=0; i<n; ++i) {
         uint8_t *page = pages + 2 + i * (2 + 40);
         page[0] = hamming_8_4_coding((row_num & 0xF0) >> 4);
         page[1] = hamming_8_4_coding(row_num & 0x0F);
-        memcpy(page + 2, buf + i * teletext_pkt_size + 3, 40);
+        memcpy(page + 2, buf + 1 + i * teletext_pkt_size + 3, 40);
         row_num++;
     }
     written = s->tcp_conn->prot->url_write(s->tcp_conn, pages, 2 + n * (2 + 40));
@@ -122,7 +120,7 @@ static int newfor_write(URLContext *h, const uint8_t *buf, int size)
         return AVERROR(EIO);
     }
 
-    // on air
+    //on air
     written = s->tcp_conn->prot->url_write(s->tcp_conn, on_air, sizeof(on_air));
     if (written != sizeof(on_air)) {
         av_log(s, AV_LOG_ERROR, "Unable to write on-air command\n");
