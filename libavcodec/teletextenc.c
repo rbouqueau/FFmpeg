@@ -64,22 +64,6 @@ static uint8_t odd_parity_coding(uint8_t byte) {
     return (!av_parity(byte) << 7 | (ODD_MASK & byte));
 }
 
-/**
- * @brief Swap a byte
- * MSb becomes LSb and so on 
- * @param byte Input byte
- * @return uint8_t Swapped byte
- */
-static uint8_t swap_byte(uint8_t byte) {
-    uint8_t temp = 0x00;
-    for(int i = 0; i < 8; i++) {
-        temp = temp << 1;
-        temp |= (0x01 & byte);
-        byte = byte >> 1;
-    }
-    return temp;
-}
-
 //////////////////////////////////////////////////////////////////////
 // Teletext Packet
 //////////////////////////////////////////////////////////////////////
@@ -142,18 +126,18 @@ typedef struct {
 
 //Page enhancement data packets (Packets X/26, X/28 and M/29 can carry data to enhance a basic Level 1 Teletext page)
 //ETSI EN 300 706 => 9.4
-typedef struct { //To be completed
+typedef struct { //To be completed //Romain: remove?
     uint8_t designationCode; //Hamming 8/4
 } PageEnhancementDataPacket;
 
 //Page Linking 
 //ETSI EN 300 706 => 9.6 Packets for Page Linking 
-typedef struct {  //to be completed
+typedef struct {  //to be completed //Romain: remove?
     uint8_t designationCode; //Hamming 8/4
     //  data 
 } PageLinking;
 
-//Other packet types:
+//Other packet types: //Romain: remove?
 // - Magazine-Related Page Enhancement Data Packets
 // - Packets for Page Linking
 // - Broadcast Service Data Packets
@@ -676,7 +660,6 @@ static uint8_t/*bool*/ addPageToWriter(PageWriterManager *pageWrMng, TeletextPag
             pageWrMng->nbPages++;
             pageWrMng->pages = av_malloc(sizeof(TeletextPage*));
             pageWrMng->pages[0] = av_malloc(sizeof(TeletextPage));
-
             memcpy(pageWrMng->pages[0], page, sizeof(TeletextPage));
 
             //Compute the number of packet that will be displayed, for the first page
@@ -721,19 +704,19 @@ static struct __pes_data_field {
 };
 typedef struct __pes_data_field PESDataField;
 
-static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *pb) {
+static int pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *pb) {
     static uint8_t/*bool*/ first_call = 0;
     PESDataField dataField;
     TeletextPacket ttxPacket;
 
     //Initialize the nbPages field during the first call of this function 
-    if(first_call) { //heed my call, YMD //Romain: ???
+    if(first_call) {
         pageWrMng->nbPages = 0;
         first_call = 0;
     }
 
     //init a data field and teletext packet
-    dataField = PESDataField_default; //initialize data field structure //Romain: TS related
+    dataField = PESDataField_default; //initialize data field structure
     ttxPacket = TeletextPacket_default; //initializeteletext packet structure
 
     if(pageWrMng->nbPages > 0) { //check if there is a page to write
@@ -742,16 +725,16 @@ static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *p
             dataField.line_offset_params[0] = CONCAT_BITS_LINE_OFFSET_PARAM(0x1,0xA);
 
             //fill header packet
-            setMagazine_PacketNumber(&ttxPacket, (pageWrMng->pages[0]->pageNumber & 0x0700)>>8, 0); //Romain: needed in the general case, not only MPEG-TS
+            setMagazine_PacketNumber(&ttxPacket, (pageWrMng->pages[0]->pageNumber & 0x0700)>>8, 0);
             memcpy(ttxPacket.data_block, &pageWrMng->pages[0]->headerPacket.page_number_units, 40);
             dataField.teletext_packet[0] = ttxPacket;
             ttxPacketStuffing(&ttxPacket);
             dataField.teletext_packet[1] = ttxPacket;
             dataField.teletext_packet[2] = ttxPacket;
             pageWrMng->firstPageWrittenPackets++;
-        }
 
-        if(pageWrMng->pages[0]->hasPageLinking) {
+            put_bits(pb, 8, dataField.data_identifier);
+        } else if(pageWrMng->pages[0]->hasPageLinking) {
             //Write linking page
             pageWrMng->pages[0]->hasPageLinking = 0; //clear
             pageWrMng->firstPageWrittenPackets++;
@@ -781,7 +764,7 @@ static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *p
                     }
                 }
             }
-            if(nb_packet < 3) {//Add stuffing byte
+            if(nb_packet < 3) {//Add stuffing byte //Romain: don't
                 ttxPacketStuffing(&ttxPacket);
                 for(int pac = nb_packet; pac<3; pac++) {
                     dataField.teletext_packet[pac] = ttxPacket;
@@ -797,7 +780,7 @@ static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *p
             av_free(pageWrMng->pages[0]); //Free the page
             pageWrMng->nbPages--;
             //Move down
-            for(int pageInd = 0;pageInd < pageWrMng->nbPages;pageInd++) {
+            for(int pageInd = 0; pageInd < pageWrMng->nbPages; pageInd++) {
                 pageWrMng->pages[pageInd] = pageWrMng->pages[pageInd + 1];
             }
 
@@ -811,21 +794,13 @@ static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *p
             }
         }
     } else { 
-        //else write a stuffing packets
-        dataField.data_identifier = 0xFF;
-        ttxPacketStuffing(&ttxPacket);
-
-        for(int j=0; j<3; j++) {
-            dataField.teletext_packet[j] = ttxPacket;
-        }     
+        return 0;
     }   
 
     //Writing data
-    put_bits(pb, 8, dataField.data_identifier);
-
     for(int packIndex=0; packIndex<3; packIndex++) { //go through the data field
         uint8_t *ptrTtx;
-        put_bits(pb, 8, dataField.data_unit_id[packIndex]);
+        put_bits(pb, 8, dataField.data_unit_id[packIndex]); //Romain: if STUFFING, don't write
         put_bits(pb, 8, dataField.data_unit_length[packIndex]);
         put_bits(pb, 8, dataField.line_offset_params[packIndex]);
         ptrTtx = &dataField.teletext_packet[packIndex].framing_code;
@@ -834,6 +809,8 @@ static void pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *p
             put_bits(pb, 8, *(ptrTtx + ttxIndex));
         }
     }
+
+    return 1;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -931,9 +908,8 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
             }
         }
 
-        //Page writer and display manager
-        //Called at each iteration to upadate and display subtitle
-        pageWritingManagement(&s->pageWRMng, &s->pb);
+        //write pages
+        while (pageWritingManagement(&s->pageWRMng, &s->pb)) {}
 
         if(dialog->style) {
             ; //TODO styling
@@ -972,6 +948,7 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
     s->subtitle_page_num = 0x888; //TODO: num should be a user option?
     s->subtitle_page = av_calloc(1, sizeof(TeletextPage));
 
+    //Compute Home Page data
     if(s->home_page) {
         const char *header_text = "Teletext";
         const char *subtitle_text = "Teletext Page";

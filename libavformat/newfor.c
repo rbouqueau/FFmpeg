@@ -24,6 +24,35 @@
 #include "avformat.h" //av_url_split
 #include "url.h"
 
+const int teletext_pkt_size = 3/*pes fields*/ + 40/*teletext_page_size*/ + 3/*header*/;
+
+static uint8_t hamming_8_4_decode(uint8_t a) {
+	static const uint8_t hamming_8_4_decode_table[256] = {
+		0x01, 0xff, 0x01, 0x01, 0xff, 0x00, 0x01, 0xff, 0xff, 0x02, 0x01, 0xff, 0x0a, 0xff, 0xff, 0x07,
+		0xff, 0x00, 0x01, 0xff, 0x00, 0x00, 0xff, 0x00, 0x06, 0xff, 0xff, 0x0b, 0xff, 0x00, 0x03, 0xff,
+		0xff, 0x0c, 0x01, 0xff, 0x04, 0xff, 0xff, 0x07, 0x06, 0xff, 0xff, 0x07, 0xff, 0x07, 0x07, 0x07,
+		0x06, 0xff, 0xff, 0x05, 0xff, 0x00, 0x0d, 0xff, 0x06, 0x06, 0x06, 0xff, 0x06, 0xff, 0xff, 0x07,
+		0xff, 0x02, 0x01, 0xff, 0x04, 0xff, 0xff, 0x09, 0x02, 0x02, 0xff, 0x02, 0xff, 0x02, 0x03, 0xff,
+		0x08, 0xff, 0xff, 0x05, 0xff, 0x00, 0x03, 0xff, 0xff, 0x02, 0x03, 0xff, 0x03, 0xff, 0x03, 0x03,
+		0x04, 0xff, 0xff, 0x05, 0x04, 0x04, 0x04, 0xff, 0xff, 0x02, 0x0f, 0xff, 0x04, 0xff, 0xff, 0x07,
+		0xff, 0x05, 0x05, 0x05, 0x04, 0xff, 0xff, 0x05, 0x06, 0xff, 0xff, 0x05, 0xff, 0x0e, 0x03, 0xff,
+		0xff, 0x0c, 0x01, 0xff, 0x0a, 0xff, 0xff, 0x09, 0x0a, 0xff, 0xff, 0x0b, 0x0a, 0x0a, 0x0a, 0xff,
+		0x08, 0xff, 0xff, 0x0b, 0xff, 0x00, 0x0d, 0xff, 0xff, 0x0b, 0x0b, 0x0b, 0x0a, 0xff, 0xff, 0x0b,
+		0x0c, 0x0c, 0xff, 0x0c, 0xff, 0x0c, 0x0d, 0xff, 0xff, 0x0c, 0x0f, 0xff, 0x0a, 0xff, 0xff, 0x07,
+		0xff, 0x0c, 0x0d, 0xff, 0x0d, 0xff, 0x0d, 0x0d, 0x06, 0xff, 0xff, 0x0b, 0xff, 0x0e, 0x0d, 0xff,
+		0x08, 0xff, 0xff, 0x09, 0xff, 0x09, 0x09, 0x09, 0xff, 0x02, 0x0f, 0xff, 0x0a, 0xff, 0xff, 0x09,
+		0x08, 0x08, 0x08, 0xff, 0x08, 0xff, 0xff, 0x09, 0x08, 0xff, 0xff, 0x0b, 0xff, 0x0e, 0x03, 0xff,
+		0xff, 0x0c, 0x0f, 0xff, 0x04, 0xff, 0xff, 0x09, 0x0f, 0xff, 0x0f, 0x0f, 0xff, 0x0e, 0x0f, 0xff,
+		0x08, 0xff, 0xff, 0x05, 0xff, 0x0e, 0x0d, 0xff, 0xff, 0x0e, 0x0f, 0xff, 0x0e, 0x0e, 0xff, 0x0e
+	};
+
+	uint8_t val = hamming_8_4_decode_table[a];
+	if (val == 0xff) {
+		val = 0; //error
+	}
+	return (val & 0x0f);
+}
+
 typedef struct NewforContext {
     const AVClass *class;
     URLContext *tcp_conn;
@@ -70,62 +99,126 @@ static int newfor_read(URLContext *h, uint8_t *buf, int size)
     return 0;
 }
 
-static int newfor_write(URLContext *h, const uint8_t *buf, int size)
+static int newfor_get_page_num(const uint8_t *buf)
+{
+    const uint8_t *address_ptr = buf + 2;
+    const uint8_t *data = address_ptr + 2;
+	uint8_t address = (hamming_8_4_decode(swap_byte(address_ptr[1])) << 4) | hamming_8_4_decode(swap_byte(address_ptr[0]));
+	uint8_t m = address & 0x7;
+	uint8_t y = (address >> 3) & 0x1f;
+
+	if(m == 0)
+		m = 8;
+
+	if(y == 0)
+		return (m << 8) | (hamming_8_4_decode(swap_byte(data[1])) << 4) | hamming_8_4_decode(swap_byte(data[0]));
+    else
+        return 0;
+}
+
+static int newfor_write_page(URLContext *h, const uint8_t *buf, int size)
 {
     NewforContext *s = h->priv_data;
-    const int teletext_pkt_size = 3/*pes_field*/ + 40/*teletext_page_size*/ + 3/*header*/;
-    const unsigned n = size / teletext_pkt_size;
-    uint8_t page_init[5] = { 0x0E, 0x15, 0, 0 , 0 };
-    uint8_t pages[2/*header*/ + 7/*@n max val*/ * (2/*RH RL*/ + 40/*data*/)] = {0};
-    const uint8_t off_air[] = { 0x18 };
-    const uint8_t on_air[] = { 0x10 };
+    int read = 0;
     int written = 0;
-    const int page_num = 888;
     int row_num = 1;
+    int page_num = 0;
 
-    av_log(h, AV_LOG_TRACE, "newfor write off air + data + on air\n");
-    av_assert0((size - 1/*data_identifier*/) % teletext_pkt_size == 0);
-    av_assert0(n <= 7);
+    av_log(h, AV_LOG_TRACE, "newfor write page (off air + data + on air)\n");
 
     //off air
-    written = s->tcp_conn->prot->url_write(s->tcp_conn, off_air, sizeof(off_air));
-    if (written != sizeof(off_air)) {
-        av_log(s, AV_LOG_ERROR, "Unable to write off-air command\n");
-        return AVERROR(EIO);
+    {
+        const uint8_t off_air[] = { 0x18 };
+        written = s->tcp_conn->prot->url_write(s->tcp_conn, off_air, sizeof(off_air));
+        if(written != sizeof(off_air)) {
+            av_log(s, AV_LOG_ERROR, "Unable to write off-air command\n");
+            return AVERROR(EIO);
+        }
     }
 
     //page init
-    page_init[2] = hamming_8_4_coding(page_num / 100);       //hundreds
-    page_init[3] = hamming_8_4_coding((page_num / 10) % 10); //tens
-    page_init[4] = hamming_8_4_coding(page_num % 10);        //units
-    written = s->tcp_conn->prot->url_write(s->tcp_conn, page_init, sizeof(page_init));
-    if (written != sizeof(page_init)) {
-        av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=%d)\n", page_num);
-        return AVERROR(EIO);
+    {
+        uint8_t page_init[5] = { 0x0E, 0x15, 0, 0 ,0 };
+
+        for(unsigned i=0; i<n; ++i) {
+            page_num = newfor_get_page_num(buf + 1/*skip data_identifier*/ + i * teletext_pkt_size + 2);
+            if (page_num != 0)
+                break;
+            else
+                av_log(s, AV_LOG_DEBUG, "page num not located in packet %d/%d\n", i, n);
+        }
+
+        page_init[2] = hamming_8_4_coding(page_num / 100);       //hundreds
+        page_init[3] = hamming_8_4_coding((page_num / 10) % 10); //tens
+        page_init[4] = hamming_8_4_coding(page_num % 10);        //units
+
+        written = s->tcp_conn->prot->url_write(s->tcp_conn, page_init, sizeof(page_init));
+        if(written != sizeof(page_init)) {
+            av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=%d)\n", page_num);
+            return AVERROR(EIO);
+        }
     }
 
     //send data
-    pages[0] = 0x0F;
-    pages[1] = hamming_8_4_coding(n); //TODO: clear bits = 8?
-    for(unsigned i=0; i<n; ++i) {
-        uint8_t *page = pages + 2 + i * (2 + 40);
-        page[0] = hamming_8_4_coding((row_num & 0xF0) >> 4);
-        page[1] = hamming_8_4_coding(row_num & 0x0F);
-        memcpy(page + 2, buf + 1 + i * teletext_pkt_size + 3, 40);
-        row_num++;
-    }
-    written = s->tcp_conn->prot->url_write(s->tcp_conn, pages, 2 + n * (2 + 40));
-    if (written != 2 + n * (2 + 40)) {
-        av_log(s, AV_LOG_ERROR, "Unable to send subtitles\n");
-        return AVERROR(EIO);
+    {
+        const unsigned n = size / teletext_pkt_size;
+        uint8_t pages[2/*header*/ + 7/*@n max val*/ * (2/*RH RL*/ + 40/*data*/)] = {0};
+
+        pages[0] = 0x0F;
+        pages[1] = hamming_8_4_coding(n); //TODO: clear bits = 8?
+
+        for(unsigned i=0; i<n; ++i) {
+            uint8_t *page = pages + 2 + i * (2 + 40);
+
+            if(i > 0 && *(buf + 1 + i * teletext_pkt_size) == 0x10)
+                break; // end of page
+
+            if (i > 6) {
+                av_log(s, AV_LOG_ERROR, "More than 7 packets for page %d. Truncating.\n", page_num);
+                break;
+            }
+
+            page[0] = hamming_8_4_coding((row_num & 0xF0) >> 4);
+            page[1] = hamming_8_4_coding( row_num & 0x0F);
+            memcpy(page + 2, buf + 1 + i * teletext_pkt_size + 3, 40);
+            row_num++;
+        }
+        read = 1 + (row_num - 1) * teletext_pkt_size;
+
+        written = s->tcp_conn->prot->url_write(s->tcp_conn, pages, 2 + n * (2 + 40));
+        if(written != 2 + n * (2 + 40)) {
+            av_log(s, AV_LOG_ERROR, "Unable to send subtitle data\n");
+            return AVERROR(EIO);
+        }
     }
 
     //on air
-    written = s->tcp_conn->prot->url_write(s->tcp_conn, on_air, sizeof(on_air));
-    if (written != sizeof(on_air)) {
-        av_log(s, AV_LOG_ERROR, "Unable to write on-air command\n");
-        return AVERROR(EIO);
+    {
+        const uint8_t on_air[] = { 0x10 };
+        written = s->tcp_conn->prot->url_write(s->tcp_conn, on_air, sizeof(on_air));
+        if(written != sizeof(on_air)) {
+            av_log(s, AV_LOG_ERROR, "Unable to write on-air command\n");
+            return AVERROR(EIO);
+        }
     }
+
+    return read;
+}
+
+static int newfor_write(URLContext *h, const uint8_t *buf, int size)
+{
+    const int num_pages = size % teletext_pkt_size;
+
+    av_log(h, AV_LOG_TRACE, "newfor write\n");
+
+    for(unsigned p=0; p<num_pages; ++p) {
+        int read = newfor_write_page(h, buf, size);
+        buf += read;
+        size -= read;
+    }
+
+    if (size != 0)
+        av_log(h, AV_LOG_WARNING, "page write size mismatch of %d bytes\n", size);
 
     return 0;
 }

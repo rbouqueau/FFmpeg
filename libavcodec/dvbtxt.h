@@ -48,6 +48,22 @@ static av_always_inline uint8_t hamming_8_4_coding(uint8_t byte) {
     return (D4<<7 | P4<<6 | D3<<5 | P3<<4 | D2<<3 | P2<<2 | D1<<1 | P1);
 }
 
+/**
+ * @brief Swap a byte
+ * MSb becomes LSb and so on
+ * @param byte Input byte
+ * @return uint8_t Swapped byte
+ */
+static av_always_inline uint8_t swap_byte(uint8_t byte) {
+    uint8_t temp = 0x00;
+    for(int i = 0; i < 8; i++) {
+        temp = temp << 1;
+        temp |= (0x01 & byte);
+        byte = byte >> 1;
+    }
+    return temp;
+}
+
 /* Returns true if data identifier matches a teletext stream according to EN
  * 301 775 section 4.4.2 */
 static av_always_inline int ff_data_identifier_is_teletext(int data_identifier)
