@@ -239,19 +239,20 @@ static int newfor_write_page(URLContext *h, const uint8_t *buf, int size)
 static int newfor_write(URLContext *h, const uint8_t *buf, int size)
 {
     const int num_pages = size % teletext_pkt_size;
+    int remaining = size;
 
     av_log(h, AV_LOG_TRACE, "newfor write\n");
 
     for(unsigned p=0; p<num_pages; ++p) {
-        int read = newfor_write_page(h, buf, size);
+        int read = newfor_write_page(h, buf, remaining);
         buf += read;
-        size -= read;
+        remaining -= read;
     }
 
-    if (size != 0)
-        av_log(h, AV_LOG_WARNING, "page write size mismatch of %d bytes\n", size);
+    if (remaining != 0)
+        av_log(h, AV_LOG_WARNING, "page write size mismatch of %d bytes (out of %d bytes)\n", remaining, size);
 
-    return 0;
+    return size - remaining;
 }
 
 static int newfor_close(URLContext *h)
