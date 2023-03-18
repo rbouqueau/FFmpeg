@@ -34,10 +34,6 @@
 #include "libavutil/internal.h"
 #include "dvbtxt.h"
 #include "ass_split.h"
-/*//Romain: check mmaloc are necessary + return value of malloc and propagate error
-        av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
-        return AVERROR(ENOMEM);
-*/
 
 //We use the MPEG2-TS payload format as the reference format.
 
@@ -299,6 +295,30 @@ typedef struct {
     uint8_t hasPageLinking; /**Boolean used to know if there is a page linking. Set to false during the creation of the first header page.*/
 } TeletextPage;
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//Struct used to manage the display of Teletext page
+typedef struct {
+    TeletextPage **pages;            //Array of Teletext pages to be displayed
+    uint8_t nbPages;                 //Number of pages to be displayed
+    uint8_t firstPageTotPackets;     //Total number of packets to be displayed for the page in first position of the array
+    uint8_t firstPageWrittenPackets; //Number of packet already written for the page in first position of the array
+} PageWriterManager;
+
+typedef struct {
+    AVCodecContext *avctx;
+    ASSSplitContext *ass_ctx;
+    PageWriterManager pageWRMng;
+    PutBitContext pb;
+
+    int home_page_num;
+    TeletextPage *home_page;
+    int subtitle_page_num;
+    TeletextPage *subtitle_page;
+} TeletextContext;
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /**
  * @struct TeletextDispText
  * @brief Struct that contains formatted subtitle 
@@ -421,12 +441,16 @@ static void formatHeaderText(const char *inputText, uint8_t outputText[32]) {
  * @param C12_C13_C14_nationalOption Control bits for the national option (language)
  * @return char* String with encoded special characters according to the national option
  */
-static char *applyNationalOption(const char *inputText, uint16_t inputTextSize, uint8_t/*bool*/ C12_C13_C14_nationalOption[3]) {
+static char *applyNationalOption(TeletextContext *s, const char *inputText, uint16_t inputTextSize, uint8_t/*bool*/ C12_C13_C14_nationalOption[3]) {
     char substr[5];
     uint8_t reduceSize = 0;
-    char *outputText = av_malloc(inputTextSize + 1/*terminal '\0'*/);
     uint8_t/*bool*/ speCharFound = 0;
     uint8_t nationalOptionVal = C12_C13_C14_nationalOption[0] << 2 | C12_C13_C14_nationalOption[1] << 1 | C12_C13_C14_nationalOption[2];
+    char *outputText = av_malloc(inputTextSize + 1/*terminal '\0'*/);
+    if(!outputText) {
+        av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+        return NULL;
+    }
 
     for(uint16_t i = 0; i<inputTextSize; i++) {
         for(uint8_t k = 0; k<13; k++) {//Check if the character is in the latin national option subset table 
@@ -440,6 +464,10 @@ static char *applyNationalOption(const char *inputText, uint16_t inputTextSize, 
                 i += speCharSize - 1 ;
 
                 outputText = av_realloc(outputText, sizeof(char) * ((inputTextSize+1) - reduceSize)); //Reduce the memory size, +1 to get the space to put an \0 at the end
+                if(!outputText) {
+                    av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+                    return NULL;
+                }
             }
         }
         if(!speCharFound) {
@@ -530,7 +558,7 @@ static void insertFormattedSub(TeletextDispText *outputText, int index, uint8_t 
  * @param C6_subtitle Control bit used when the associated page is for subtitling
  * @param C12_C13_C14_nationalOption Control bits for the national option (language)
  */
-static void formatDisplayableText(const char *inputText, uint16_t inputTextSize, TeletextDispText *outputText, TeletextAspect *textAspect, uint8_t/*bool*/ C6_subtitle, uint8_t/*bool*/ C12_C13_C14_nationalOption[3]) {
+static int formatDisplayableText(TeletextContext *s, const char *inputText, uint16_t inputTextSize, TeletextDispText *outputText, TeletextAspect *textAspect, uint8_t/*bool*/ C6_subtitle, uint8_t/*bool*/ C12_C13_C14_nationalOption[3]) {
     char *inputTextNatOpt;
     uint16_t textSize;
 
@@ -553,7 +581,9 @@ static void formatDisplayableText(const char *inputText, uint16_t inputTextSize,
     outputText->rowSpan = 2; //depends on double height (standard = 1) (to be removed and applied with style)
 
     //Detects special characters in a string and convert it according to the national option
-    inputTextNatOpt = applyNationalOption(inputText, inputTextSize, C12_C13_C14_nationalOption);
+    inputTextNatOpt = applyNationalOption(s, inputText, inputTextSize, C12_C13_C14_nationalOption);
+    if(!inputTextNatOpt)
+        return AVERROR(ENOMEM);
 
     textSize = strlen(inputTextNatOpt); //length of string 
    
@@ -575,6 +605,10 @@ static void formatDisplayableText(const char *inputText, uint16_t inputTextSize,
     rowCharacterUsage = 0;
     lastSpacePos = 0;
     outputText->formattedText = av_malloc(CHARACTER_PER_ROW); //Allocate for 1 row
+    if(!outputText->formattedText) {
+        av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+        return AVERROR(ENOMEM);
+    }
     for(i=0; i<textSize; i++) {
         if(inputTextNatOpt[i] == ' ') {//Check for space
             lastSpacePos = rowCharacterUsage; //Save the index of a space
@@ -589,6 +623,10 @@ static void formatDisplayableText(const char *inputText, uint16_t inputTextSize,
             outputText->nbRowsUsed++;
             //Add a new row
             outputText->formattedText = av_realloc(outputText->formattedText,sizeof(uint8_t) * CHARACTER_PER_ROW * outputText->nbRowsUsed);
+            if(!outputText->formattedText) {
+                av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+                return AVERROR(ENOMEM);
+            }
             rowCharacterUsage = 0;
             i--; //To avoid index problem with the loop for increment
         } else {
@@ -613,19 +651,9 @@ static void formatDisplayableText(const char *inputText, uint16_t inputTextSize,
 
     //Free input text with national option
     av_free(inputTextNatOpt);
+
+    return 0;
 }
-
-//////////////////////////////////////////////////////////////////////
-// PageWriter
-//////////////////////////////////////////////////////////////////////
-
-//Struct used to manage the display of Teletext page
-typedef struct {
-    TeletextPage **pages;            //Array of Teletext pages to be displayed
-    uint8_t nbPages;                 //Number of pages to be displayed
-    uint8_t firstPageTotPackets;     //Total number of packets to be displayed for the page in first position of the array
-    uint8_t firstPageWrittenPackets; //Number of packet already written for the page in first position of the array
-} PageWriterManager;
 
 static void compute_nb_packet_first_page(PageWriterManager *pageWrMng) {
     pageWrMng->firstPageTotPackets = 1; //header mandatory
@@ -652,14 +680,22 @@ static void compute_nb_packet_first_page(PageWriterManager *pageWrMng) {
     }
 }
 
-static uint8_t/*bool*/ addPageToWriter(PageWriterManager *pageWrMng, TeletextPage *page) {
+static uint8_t/*bool*/ addPageToWriter(TeletextContext *s, PageWriterManager *pageWrMng, TeletextPage *page) {
     if(!page->hasHeaderPacket) { //mandatory
         return 0;
     } else {
         if(pageWrMng->nbPages == 0) {
             pageWrMng->nbPages++;
             pageWrMng->pages = av_malloc(sizeof(TeletextPage*));
+            if(!pageWrMng->pages) {
+                av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+                return AVERROR(ENOMEM);
+            }
             pageWrMng->pages[0] = av_malloc(sizeof(TeletextPage));
+            if(!pageWrMng->pages[0]) {
+                av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+                return AVERROR(ENOMEM);
+            }
             memcpy(pageWrMng->pages[0], page, sizeof(TeletextPage));
 
             //Compute the number of packet that will be displayed, for the first page
@@ -667,7 +703,15 @@ static uint8_t/*bool*/ addPageToWriter(PageWriterManager *pageWrMng, TeletextPag
         } else {
             pageWrMng->nbPages++;
             pageWrMng->pages = av_realloc(pageWrMng->pages, sizeof(TeletextPage*) * pageWrMng->nbPages);
+            if(!pageWrMng->pages) {
+                av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+                return AVERROR(ENOMEM);
+            }
             pageWrMng->pages[pageWrMng->nbPages - 1] = av_malloc(sizeof(TeletextPage));
+            if(!pageWrMng->pages[pageWrMng->nbPages - 1]) {
+                av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+                return AVERROR(ENOMEM);
+            }
             memcpy(pageWrMng->pages[pageWrMng->nbPages - 1], page, sizeof(TeletextPage)); //add the page 
         }
 
@@ -704,7 +748,7 @@ static struct __pes_data_field {
 };
 typedef struct __pes_data_field PESDataField;
 
-static int pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *pb) {
+static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMng, PutBitContext *pb) {
     static uint8_t/*bool*/ first_call = 0;
     PESDataField dataField;
     TeletextPacket ttxPacket;
@@ -787,6 +831,10 @@ static int pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *pb
             if(pageWrMng->nbPages > 0) {
                 //Shrink the memory 
                 pageWrMng->pages = av_realloc(pageWrMng->pages, sizeof(TeletextPage*) * pageWrMng->nbPages);
+                if(!pageWrMng->pages) {
+                    av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+                    return AVERROR(ENOMEM);
+                }
                 compute_nb_packet_first_page(pageWrMng);
             }
             if(pageWrMng->nbPages == 0) { //if there isn't anymore pages
@@ -814,20 +862,6 @@ static int pageWritingManagement(PageWriterManager *pageWrMng, PutBitContext *pb
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-typedef struct {
-    AVCodecContext *avctx;
-    ASSSplitContext *ass_ctx;
-    PageWriterManager pageWRMng;
-    PutBitContext pb;
-
-    int home_page_num;
-    TeletextPage *home_page;
-    int subtitle_page_num;
-    TeletextPage *subtitle_page;
-} TeletextContext;
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
 static void teletext_text_cb(void *priv, const char *text, int len) {
     TeletextContext *s = priv;
     uint8_t dataHeaderSubtitlePage[32] = {0};
@@ -835,23 +869,29 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
     TeletextDispText dispTextSubtitlePage = {0}; // dispText.formattedText have to be freed after each uses //Romain: ???
     TeletextAspect textAspectSubtitlePage = {0};
     uint8_t/*bool*/ lang[3] = {1,0,0};
+    int ret;
 
     setControlBits(&controlbitSubtitlePage, 0xBD/*1011 1101*/, lang);
     formatHeaderText("Teletext Page", dataHeaderSubtitlePage);
     setHeaderPacket(s->subtitle_page, s->subtitle_page_num, 0x0000, controlbitSubtitlePage, dataHeaderSubtitlePage);
 
     //TODO styling: convert_ttml_aspect_to_Teletext_aspect(&currentSubtitle[dispsub], &textAspectSubtitlePage);
-    formatDisplayableText(text, len, &dispTextSubtitlePage, &textAspectSubtitlePage, controlbitSubtitlePage.C6_subtitle, controlbitSubtitlePage.C12_C13_C14_nationalOption);
+    ret = formatDisplayableText(s, text, len, &dispTextSubtitlePage, &textAspectSubtitlePage, controlbitSubtitlePage.C6_subtitle, controlbitSubtitlePage.C12_C13_C14_nationalOption);
+    if(ret < 0) {
+        av_log(s->avctx, AV_LOG_ERROR, "Aborting. Error when formatting text: %s.\n", av_err2str(ret));
+        return;
+    }
+
     for(uint8_t nb_row = 0; nb_row < dispTextSubtitlePage.nbRowsUsed; nb_row++) {
         uint8_t buff[40];
         memcpy(buff, dispTextSubtitlePage.formattedText+(CHARACTER_PER_ROW * nb_row), CHARACTER_PER_ROW);
         setDisplayablePacket(s->subtitle_page, (dispTextSubtitlePage.row + (dispTextSubtitlePage.rowSpan * nb_row)), buff);
     } 
     av_free(dispTextSubtitlePage.formattedText);
-    addPageToWriter(&s->pageWRMng, s->subtitle_page); //add the subtitle page to the writer
+    addPageToWriter(s, &s->pageWRMng, s->subtitle_page); //add the subtitle page to the writer
 
     //Add a new page header to display the subtitle page
-    addPageToWriter(&s->pageWRMng, s->home_page);
+    addPageToWriter(s, &s->pageWRMng, s->home_page);
 }
 
 static void teletext_new_line_cb(void *priv, int forced) {
@@ -909,7 +949,7 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
         }
 
         //write pages
-        while (pageWritingManagement(&s->pageWRMng, &s->pb)) {}
+        while (pageWritingManagement(s, &s->pageWRMng, &s->pb)) {}
 
         if(dialog->style) {
             ; //TODO styling
@@ -943,10 +983,18 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
     //Home Page
     s->home_page_num = 0x100; //TODO: user option?
     s->home_page = av_calloc(1, sizeof(TeletextPage));
+    if(!s->home_page) {
+        av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+        return AVERROR(ENOMEM);
+    }
 
     //Subtitle Page
     s->subtitle_page_num = 0x888; //TODO: num should be a user option?
     s->subtitle_page = av_calloc(1, sizeof(TeletextPage));
+    if(!s->subtitle_page) {
+        av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
+        return AVERROR(ENOMEM);
+    }
 
     //Compute Home Page data
     if(s->home_page) {
@@ -957,13 +1005,16 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
         uint8_t byteDispHomePage[40];
         TeletextAspect textAspectHomePage = {SPAC_ATTR_ALPHA_WHITE, SPAC_ATTR_NORMAL_SIZE, 0.5, CENTER};
         TeletextDispText dispTextHomePage = {0};
+        int ret;
 
         controlbitHomePage.C11_magazineSerial = 1;
         controlbitHomePage.C12_C13_C14_nationalOption[0] = 1;
 
         formatHeaderText(header_text, dataHeaderHomePage);
         setHeaderPacket(s->home_page, s->home_page_num, 0x0000, controlbitHomePage, dataHeaderHomePage);
-        formatDisplayableText(subtitle_text, strlen(subtitle_text), &dispTextHomePage, &textAspectHomePage, controlbitHomePage.C6_subtitle, controlbitHomePage.C12_C13_C14_nationalOption);
+        ret = formatDisplayableText(s, subtitle_text, strlen(subtitle_text), &dispTextHomePage, &textAspectHomePage, controlbitHomePage.C6_subtitle, controlbitHomePage.C12_C13_C14_nationalOption);
+        if(ret < 0)
+            return ret;
         memcpy(byteDispHomePage, dispTextHomePage.formattedText, 40);
         setDisplayablePacket(s->home_page, dispTextHomePage.row, byteDispHomePage); //Will use only 1 line //Romain: do we ever send this page? is it useful?
 
