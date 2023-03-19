@@ -39,11 +39,7 @@
 
 #define CHARACTER_PER_ROW 40 //Max number of characters per row
 #define NB_ROW 25 //Max numer of row 
-#define NB_ENHANCEMENT_PACKET 3 
-
-//////////////////////////////////////////////////////////////////////
-// Bitwise Operations
-//////////////////////////////////////////////////////////////////////
+#define NB_ENHANCEMENT_PACKET 3
 
 #define ODD_MASK 0x7F
 
@@ -305,6 +301,8 @@ typedef struct {
     uint8_t firstPageWrittenPackets; //Number of packet already written for the page in first position of the array
 } PageWriterManager;
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 typedef struct {
     AVCodecContext *avctx;
     ASSSplitContext *ass_ctx;
@@ -352,6 +350,8 @@ typedef struct {
     float verticalPadding;      /**vertical padding should be between 0 and 1*/
     TextAlign align;            /**text alignement*/
 } TeletextAspect;
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * @brief Set a header Packet in a Magazine
@@ -865,6 +865,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 static void teletext_text_cb(void *priv, const char *text, int len) {
     TeletextContext *s = priv;
     uint8_t dataHeaderSubtitlePage[32] = {0};
@@ -905,6 +906,7 @@ static const ASSCodesCallbacks teletext_callbacks = {
     .text             = teletext_text_cb,
     .new_line         = teletext_new_line_cb,
 };
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,

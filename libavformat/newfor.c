@@ -24,6 +24,7 @@
 #include "avformat.h" //av_url_split
 #include "url.h"
 
+#define NEWFOR_MAX_PKT_PER_PAGE 7
 #define NEWFOR_SAFE(a) { int ret = a; if(ret<0) return ret; }
 
 const int teletext_pkt_size = 3/*pes fields*/ + 40/*teletext_page_size*/ + 3/*header*/;
@@ -74,7 +75,6 @@ static const AVClass newfor_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-/* return non zero if error */
 static int newfor_open(URLContext *h, const char *uri, int flags)
 {
     NewforContext *s = h->priv_data;
@@ -123,7 +123,7 @@ static int newfor_write_page_off_air(URLContext *h)
     int written;
     const uint8_t off_air[] = { 0x18 };
 
-    av_log(h, AV_LOG_TRACE, "newfor write page (off air)\n");
+    av_log(h, AV_LOG_TRACE, "newfor write page (off-air)\n");
 
     written = s->tcp_conn->prot->url_write(s->tcp_conn, off_air, sizeof(off_air));
     if(written != sizeof(off_air)) {
@@ -172,7 +172,7 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
     int read = 0;
     int row_num = 1;
     const unsigned n = size / teletext_pkt_size;
-    uint8_t pages[2/*header*/ + 7/*@n max val*/ * (2/*RH RL*/ + 40/*data*/)] = {0};
+    uint8_t pages[2/*header*/ + NEWFOR_MAX_PKT_PER_PAGE * (2/*RH RL*/ + 40/*data*/)] = {0};
 
     av_log(h, AV_LOG_TRACE, "newfor write page (send data)\n");
 
@@ -186,7 +186,7 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
             break; // end of page
 
         if (i > 6) {
-            av_log(s, AV_LOG_ERROR, "More than 7 packets for page 0x%X. Truncating.\n", page_num);
+            av_log(s, AV_LOG_ERROR, "More than %d packets for page 0x%X. Truncating.\n", NEWFOR_MAX_PKT_PER_PAGE, page_num);
             break;
         }
 
@@ -257,7 +257,6 @@ static int newfor_write(URLContext *h, const uint8_t *buf, int size)
 
 static int newfor_close(URLContext *h)
 {
-    //NewforContext *s = h->priv_data;
     av_log(h, AV_LOG_TRACE, "newfor close\n");
     return 0;
 }
