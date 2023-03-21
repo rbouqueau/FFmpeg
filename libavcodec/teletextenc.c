@@ -259,7 +259,7 @@ static void setMagazine_PacketNumber(TeletextPacket *ttxPacket, uint8_t magazine
 }
 
 //Latin National Option Sub-sets, ETSI EN 300 706 ==> Table 32 and 15.6.2
-static const char *latinNationalOptionSub_set [7][13] = {
+static const char *latinNationalOptionSub_set[7][13] = {
     {"£","$","@","←","½","→","↑","#","—","¼","║","¾","÷"},//English
     {"#","$","§","Ä","Ö","Ü","^","_","°","ä","ö","ü","ß"},//German
     {"#","¤","É","Ä","Ö","Å","Ü","_","é","ä","ö","å","ü"},//Swedish/Finnish
@@ -456,8 +456,8 @@ static char *applyNationalOption(TeletextContext *s, const char *inputText, uint
         for(uint8_t k = 0; k<13; k++) {//Check if the character is in the latin national option subset table 
             uint8_t speCharSize = strlen(latinNationalOptionSub_set[nationalOptionVal][k]);
             substr[speCharSize] = '\0'; //Reset the length of the character
-            strncpy(substr,inputText+i,speCharSize);
-            if(!strcmp(latinNationalOptionSub_set[nationalOptionVal][k],substr)) {
+            strncpy(substr, inputText+i, speCharSize);
+            if(!strcmp(latinNationalOptionSub_set[nationalOptionVal][k], substr)) {
                 speCharFound = 0; //We found a special character/string to be replaced
                 outputText[i-reduceSize] = natoptValues[k];
                 reduceSize += speCharSize - 1; //compute the space gained by replacing this special character
@@ -491,7 +491,6 @@ static char *applyNationalOption(TeletextContext *s, const char *inputText, uint
  * @param startOffset Number of spacings attributes before the text 
  * @param endOffset Number of spacings attributes after the text
  * @param C6_subtitle Control bits that manages the national option (language)
- * @param C12_C13_C14_nationalOption Control bits for the national option (language)
  */
 static void insertFormattedSub(TeletextDispText *outputText, int index, uint8_t rowCharacterUsage, char *inputText, TeletextAspect *textAspect, uint8_t startOffset, uint8_t endOffset, uint8_t/*bool*/ C6_subtitle) {
     uint8_t j_buff = 0;
@@ -872,7 +871,7 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
     ControlBits controlbitSubtitlePage = ControlBits_default;
     TeletextDispText dispTextSubtitlePage = {0}; // dispText.formattedText have to be freed after each uses //Romain: ???
     TeletextAspect textAspectSubtitlePage = {0};
-    uint8_t/*bool*/ lang[3] = {1,0,0};
+    uint8_t/*bool*/ lang[3] = {1,0,0}; //Romain: lang coding
     int ret;
 
     setControlBits(&controlbitSubtitlePage, 0xBD/*1011 1101*/, lang);

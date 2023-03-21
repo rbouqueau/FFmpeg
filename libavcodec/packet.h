@@ -192,6 +192,12 @@ enum AVPacketSideDataType {
     AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL,
 
     /**
+     * The optional styling (rendering instructions) that are global
+     * to a WebVTT document.
+     */
+    AV_PKT_DATA_WEBVTT_STYLING,
+
+    /**
      * The optional first identifier line of a WebVTT cue.
      */
     AV_PKT_DATA_WEBVTT_IDENTIFIER,
@@ -201,12 +207,6 @@ enum AVPacketSideDataType {
      * follow the timestamp specifier of a WebVTT cue.
      */
     AV_PKT_DATA_WEBVTT_SETTINGS,
-
-    /**
-     * The optional settings (rendering instructions) that are global
-     * to a WebVTT document.
-     */
-    AV_PKT_DATA_WEBVTT_STYLING, //Romain: see if other codecs do this, or if they apply styling on the fly
 
     /**
      * A list of zero terminated key/value strings. There is no end marker for
