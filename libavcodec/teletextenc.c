@@ -118,18 +118,18 @@ typedef struct {
 
 //Page enhancement data packets (Packets X/26, X/28 and M/29 can carry data to enhance a basic Level 1 Teletext page)
 //ETSI EN 300 706 => 9.4
-typedef struct { //To be completed //Romain: remove?
+typedef struct { //To be completed
     uint8_t designationCode; //Hamming 8/4
 } PageEnhancementDataPacket;
 
 //Page Linking 
 //ETSI EN 300 706 => 9.6 Packets for Page Linking 
-typedef struct {  //to be completed //Romain: remove?
+typedef struct {  //to be completed
     uint8_t designationCode; //Hamming 8/4
     //  data 
 } PageLinking;
 
-//Other packet types: //Romain: remove?
+//Other packet types:
 // - Magazine-Related Page Enhancement Data Packets
 // - Packets for Page Linking
 // - Broadcast Service Data Packets
@@ -487,7 +487,7 @@ static char *applyNationalOption(TeletextContext *s, const char *inputText, uint
  * @param index Index into the input subtitle string (inputText)
  * @param rowCharacterUsage Number of characters used on this Teletext line
  * @param inputText Input subtitle string
- * @param textAspect Struct that defines the Teletext aspect (color, padding) //Romain: see how this is used
+ * @param textAspect Struct that defines the Teletext aspect (color, padding)
  * @param startOffset Number of spacings attributes before the text 
  * @param endOffset Number of spacings attributes after the text
  * @param C6_subtitle Control bits that manages the national option (language)
@@ -536,7 +536,7 @@ static void insertFormattedSub(TeletextDispText *outputText, int index, uint8_t 
     }
 
     if(C6_subtitle) { //Put start and end box
-        outputText->formattedText[paddingLeftOffset + startOffset-3 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_DOUBLE_HEIGHT; //double height (not depends on style for now) (to be removed and applied with style) //Romain: WTF
+        outputText->formattedText[paddingLeftOffset + startOffset-3 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_DOUBLE_HEIGHT; //double height (not depends on style for now) (to be removed and applied with style)
         outputText->formattedText[paddingLeftOffset + startOffset-2 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
         outputText->formattedText[paddingLeftOffset + startOffset-1 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
         outputText->formattedText[paddingLeftOffset + startOffset + rowCharacterUsage + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_END_BOX;
@@ -807,7 +807,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
                     }
                 }
             }
-            if(nb_packet < 3) {//Add stuffing byte //Romain: don't
+            if(nb_packet < 3) {//Add stuffing byte
                 ttxPacketStuffing(&ttxPacket);
                 for(int pac = nb_packet; pac<3; pac++) {
                     dataField.teletext_packet[pac] = ttxPacket;
@@ -850,7 +850,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
         if (dataField.data_unit_id[packIndex] == DATA_UNIT_STUFFING)
             continue;
 
-        put_bits(pb, 8, dataField.data_unit_id[packIndex]); //Romain: if STUFFING, don't write
+        put_bits(pb, 8, dataField.data_unit_id[packIndex]);
         put_bits(pb, 8, dataField.data_unit_length[packIndex]);
         put_bits(pb, 8, dataField.line_offset_params[packIndex]);
         ptrTtx = &dataField.teletext_packet[packIndex].framing_code;
@@ -869,16 +869,16 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
     TeletextContext *s = priv;
     uint8_t dataHeaderSubtitlePage[32] = {0};
     ControlBits controlbitSubtitlePage = ControlBits_default;
-    TeletextDispText dispTextSubtitlePage = {0}; // dispText.formattedText have to be freed after each uses //Romain: ???
+    TeletextDispText dispTextSubtitlePage = {0}; // dispText.formattedText have to be freed after each uses
     TeletextAspect textAspectSubtitlePage = {0};
-    uint8_t/*bool*/ lang[3] = {1,0,0}; //Romain: lang coding
+    uint8_t/*bool*/ lang[3] = {1,0,0};
     int ret;
 
     setControlBits(&controlbitSubtitlePage, 0xBD/*1011 1101*/, lang);
     formatHeaderText("Teletext Page", dataHeaderSubtitlePage);
     setHeaderPacket(s->subtitle_page, s->subtitle_page_num, 0x0000, controlbitSubtitlePage, dataHeaderSubtitlePage);
 
-    //TODO styling: convert_ttml_aspect_to_Teletext_aspect(&currentSubtitle[dispsub], &textAspectSubtitlePage);
+    //convert_ttml_aspect_to_Teletext_aspect(&currentSubtitle[dispsub], &textAspectSubtitlePage);
     ret = formatDisplayableText(s, text, len, &dispTextSubtitlePage, &textAspectSubtitlePage, controlbitSubtitlePage.C6_subtitle, controlbitSubtitlePage.C12_C13_C14_nationalOption);
     if(ret < 0) {
         av_log(s->avctx, AV_LOG_ERROR, "Aborting. Error when formatting text: %s.\n", av_err2str(ret));
@@ -985,7 +985,7 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
         return AVERROR_INVALIDDATA;
 
     //Home Page
-    s->home_page_num = 0x100; //TODO: user option?
+    s->home_page_num = 0x100;
     s->home_page = av_calloc(1, sizeof(TeletextPage));
     if(!s->home_page) {
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
@@ -993,7 +993,7 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
     }
 
     //Subtitle Page
-    s->subtitle_page_num = 0x888; //TODO: num should be a user option?
+    s->subtitle_page_num = 0x888;
     s->subtitle_page = av_calloc(1, sizeof(TeletextPage));
     if(!s->subtitle_page) {
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
@@ -1020,7 +1020,7 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
         if(ret < 0)
             return ret;
         memcpy(byteDispHomePage, dispTextHomePage.formattedText, 40);
-        setDisplayablePacket(s->home_page, dispTextHomePage.row, byteDispHomePage); //Will use only 1 line //Romain: do we ever send this page? is it useful?
+        setDisplayablePacket(s->home_page, dispTextHomePage.row, byteDispHomePage); //Will use only 1 line
 
         av_free(dispTextHomePage.formattedText); //Formatted text needs to be freed
     }
