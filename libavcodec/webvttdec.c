@@ -120,8 +120,10 @@ static WebVTTTagReplace* parse_style(const char *p, WebVTTTagReplace *webvtt_tag
                         webvtt_tag_replace = av_realloc(webvtt_tag_replace, (*webvtt_tag_replace_num_entries + 1) * sizeof(WebVTTTagReplace));
                     }
 
+                    p += 1; // '#'
+                    len = strcspn(p, ";"); // expecting len=6 for RGB
                     color = av_malloc(14);
-                    sprintf(color, "{\\c&H%"PRIX32"&}", *((uint32_t*)p));
+                    sprintf(color, "{\\c&H%.6s&}", p);
                     webvtt_tag_replace[*webvtt_tag_replace_num_entries] = (WebVTTTagReplace){name, color};
                     (*webvtt_tag_replace_num_entries)++;
                 }
@@ -143,8 +145,6 @@ static int webvtt_event_to_ass(AVBPrint *buf, const char *p, const WebVTTTagRepl
     for (i = WEBVTT_TAG_REPLACE_NUM; i < webvtt_tag_replace_num_entries; i++)
         if (!strcmp(webvtt_tag_replace[i].from, WEBVTT_ROOT_TAG))
             av_bprintf(buf, "%s", webvtt_tag_replace[i].to);
-            //av_bprintf(buf, "<"WEBVTT_ROOT_TAG">");
-            //webvtt_event_to_ass(buf, "<"WEBVTT_ROOT_TAG">", webvtt_tag_replace, webvtt_tag_replace_num_entries);
 
     while (*p) {
         for (i = 0; i < webvtt_tag_replace_num_entries; i++) {

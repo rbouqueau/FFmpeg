@@ -303,20 +303,6 @@ typedef struct {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct {
-    AVCodecContext *avctx;
-    ASSSplitContext *ass_ctx;
-    PageWriterManager pageWRMng;
-    PutBitContext pb;
-
-    int home_page_num;
-    TeletextPage *home_page;
-    int subtitle_page_num;
-    TeletextPage *subtitle_page;
-} TeletextContext;
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 /**
  * @struct TeletextDispText
  * @brief Struct that contains formatted subtitle 
@@ -350,6 +336,21 @@ typedef struct {
     float verticalPadding;      /**vertical padding should be between 0 and 1*/
     TextAlign align;            /**text alignement*/
 } TeletextAspect;
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+typedef struct {
+    AVCodecContext *avctx;
+    ASSSplitContext *ass_ctx;
+    PageWriterManager pageWRMng;
+    PutBitContext pb;
+
+    int home_page_num;
+    TeletextPage *home_page;
+    int subtitle_page_num;
+    TeletextPage *subtitle_page;
+    TeletextAspect textAspect;
+} TeletextContext;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -865,12 +866,48 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+static int color_distance(unsigned a, unsigned b)
+{
+    unsigned char *color_a = (unsigned char*)&a, *color_b = (unsigned char*)&b;
+    return FFABS(color_a[0] - color_b[0]) + FFABS(color_a[1] - color_b[1]) + FFABS(color_a[2] - color_b[2]) + FFABS(color_a[3] - color_b[3]);
+}
+
+static void find_closest_color(TeletextAspect *textAspect, unsigned color)
+{
+    static const struct Color {
+        unsigned ass_color;
+        SpacingAttributes teletext_color;
+    } colors[] = {
+        { 0xFFFFFF, SPAC_ATTR_ALPHA_WHITE },
+        { 0x000000, SPAC_ATTR_ALPHA_BLACK },
+        { 0x0000FF, SPAC_ATTR_ALPHA_RED },
+        { 0x00FF00, SPAC_ATTR_ALPHA_GREEN },
+        { 0x00FFFF, SPAC_ATTR_ALPHA_YELLOW },
+        { 0xFF0000, SPAC_ATTR_ALPHA_BLUE },
+        { 0xFF00FF, SPAC_ATTR_ALPHA_MAGENTA },
+    };
+
+    int dist = INT_MAX;
+
+    for (int i=0; i<FF_ARRAY_ELEMS(colors); ++i) {
+        int local_dist = color_distance(color, colors[i].ass_color);
+        if (local_dist < dist) {
+            dist = local_dist;
+            textAspect->color = colors[i].teletext_color;
+        }
+    }
+}
+
+static void teletext_color_cb(void *priv, unsigned int color, unsigned int /*color_id*/) {
+    TeletextContext *s = priv;
+    find_closest_color(&s->textAspect, color);
+}
+
 static void teletext_text_cb(void *priv, const char *text, int len) {
     TeletextContext *s = priv;
     uint8_t dataHeaderSubtitlePage[32] = {0};
     ControlBits controlbitSubtitlePage = ControlBits_default;
     TeletextDispText dispTextSubtitlePage = {0}; // dispText.formattedText have to be freed after each uses
-    TeletextAspect textAspectSubtitlePage = {0};
     uint8_t/*bool*/ lang[3] = {1,0,0};
     int ret;
 
@@ -878,8 +915,7 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
     formatHeaderText("Teletext Page", dataHeaderSubtitlePage);
     setHeaderPacket(s->subtitle_page, s->subtitle_page_num, 0x0000, controlbitSubtitlePage, dataHeaderSubtitlePage);
 
-    //convert_ttml_aspect_to_Teletext_aspect(&currentSubtitle[dispsub], &textAspectSubtitlePage);
-    ret = formatDisplayableText(s, text, len, &dispTextSubtitlePage, &textAspectSubtitlePage, controlbitSubtitlePage.C6_subtitle, controlbitSubtitlePage.C12_C13_C14_nationalOption);
+    ret = formatDisplayableText(s, text, len, &dispTextSubtitlePage, &s->textAspect, controlbitSubtitlePage.C6_subtitle, controlbitSubtitlePage.C12_C13_C14_nationalOption);
     if(ret < 0) {
         av_log(s->avctx, AV_LOG_ERROR, "Aborting. Error when formatting text: %s.\n", av_err2str(ret));
         return;
@@ -897,13 +933,9 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
     addPageToWriter(s, &s->pageWRMng, s->home_page);
 }
 
-static void teletext_new_line_cb(void *priv, int forced) {
-    //TeletextContext *s = priv;
-}
-
 static const ASSCodesCallbacks teletext_callbacks = {
-    .text             = teletext_text_cb,
-    .new_line         = teletext_new_line_cb,
+    .text          = teletext_text_cb,
+    .color         = teletext_color_cb,
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -916,6 +948,7 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
     int i;
 
     s->pageWRMng = (PageWriterManager){0};
+    s->textAspect = (TeletextAspect){0}; // reset styling
 
     init_put_bits(&s->pb, buf, bufsize);
 
@@ -931,10 +964,6 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
         dialog = ff_ass_split_dialog(s->ass_ctx, ass);
         if(!dialog)
             return AVERROR(ENOMEM);
-
-        if(dialog->style) {
-            //TODO styling
-        }
 
         ret = ff_ass_split_override_codes(&teletext_callbacks, s, dialog->text);
         if(ret < 0) {
@@ -954,10 +983,6 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
 
         //write pages
         while (pageWritingManagement(s, &s->pageWRMng, &s->pb)) {}
-
-        if(dialog->style) {
-            ; //TODO styling
-        }
 
         ff_ass_free_dialog(&dialog);
     }
@@ -1000,8 +1025,9 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
         return AVERROR(ENOMEM);
     }
 
-    //Compute Home Page data
+    //Compute Home Page static data
     if(s->home_page) {
+        int ret;
         const char *header_text = "Teletext";
         const char *subtitle_text = "Teletext Page";
         ControlBits controlbitHomePage = ControlBits_default;
@@ -1009,7 +1035,6 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
         uint8_t byteDispHomePage[40];
         TeletextAspect textAspectHomePage = {SPAC_ATTR_ALPHA_WHITE, SPAC_ATTR_NORMAL_SIZE, 0.5, CENTER};
         TeletextDispText dispTextHomePage = {0};
-        int ret;
 
         controlbitHomePage.C11_magazineSerial = 1;
         controlbitHomePage.C12_C13_C14_nationalOption[0] = 1;
