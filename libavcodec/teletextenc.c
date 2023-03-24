@@ -1,9 +1,10 @@
 /*
  * Teletext subtitle encoder shared functionality
  * Copyright (c) 2023 Motion Spell - Romain Bouqueau
- * Copyright (c) 2022 Benjamin Bricard
- * Copyright (c) 2022 Leandre Moudar
- * Copyright (c) 2022 Florian Mahieu
+ * based on BSD2-licensed source code written by:
+ *   Copyright (c) 2022 Benjamin Bricard
+ *   Copyright (c) 2022 Leandre Moudar
+ *   Copyright (c) 2022 Florian Mahieu
  *
  * This file is part of FFmpeg.
  *
