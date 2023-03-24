@@ -77,8 +77,10 @@ static WebVTTTagReplace* parse_style(const char *p, WebVTTTagReplace *webvtt_tag
 
         //skip header
         SKIP_NEWLINE();
-        if (strncmp(p, "::cue", 5))
+        if (strncmp(p, "::cue", 5)) {
+            av_log(NULL, AV_LOG_WARNING, "Stop parsing Style. Expecting \"::cue\", got: \"%s\"\n", p);
             goto exit;
+        }
 
         p += 5;
 
@@ -86,8 +88,10 @@ static WebVTTTagReplace* parse_style(const char *p, WebVTTTagReplace *webvtt_tag
         if (*p == '(') {
             p += 1;
             len = strcspn(p, ")");
-            if (len < 1 || len > strlen(p))
+            if (len < 1 || len > strlen(p)) {
+                av_log(NULL, AV_LOG_WARNING, "Stop parsing Style. Missing closing parenthesis, got: \"%s\"\n", p);
                 goto exit;
+            }
 
             name = av_strndup(p, len);
             p += len + 1;
@@ -96,8 +100,10 @@ static WebVTTTagReplace* parse_style(const char *p, WebVTTTagReplace *webvtt_tag
         REMOVE_SPACES();
         if (*p == '{') {
             len = strcspn(p, "}");
-            if (len < 1 || len > strlen(p))
+            if (len < 1 || len > strlen(p)) {
+                av_log(NULL, AV_LOG_WARNING, "Stop parsing Style. Missing closing bracket, got: \"%s\"\n", p);
                 goto exit;
+            }
 
             p += 1;
             SKIP_NEWLINE();
@@ -130,8 +136,10 @@ static WebVTTTagReplace* parse_style(const char *p, WebVTTTagReplace *webvtt_tag
                 SKIP_NEWLINE();
             }
             SKIP_NEWLINE();
-        } else
+        } else {
+            av_log(NULL, AV_LOG_WARNING, "Stop parsing Style. Missing opening bracket, got: \"%s\"\n", p);
             goto exit;
+        }
     }
 
 exit:
