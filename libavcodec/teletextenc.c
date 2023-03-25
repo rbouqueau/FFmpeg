@@ -899,7 +899,7 @@ static void find_closest_color(TeletextAspect *textAspect, unsigned color)
     }
 }
 
-static void teletext_color_cb(void *priv, unsigned int color, unsigned int /*color_id*/) {
+static void teletext_color_cb(void *priv, unsigned int color, av_unused unsigned int color_id) {
     TeletextContext *s = priv;
     find_closest_color(&s->textAspect, color);
 }
