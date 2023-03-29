@@ -134,13 +134,28 @@ static int newfor_write_page_off_air(URLContext *h)
     return 0;
 }
 
+static int newfor_connect_internal(NewforContext *s, int page_num)
+{
+    int written;
+    uint8_t page_init[5] = { 0x0E, 0x15,
+        hamming_8_4_coding(page_num / 100),       //hundreds };
+        hamming_8_4_coding((page_num / 10) % 10), //tens
+        hamming_8_4_coding(page_num % 10)        //units
+    };
+    written = s->tcp_conn->prot->url_write(s->tcp_conn, page_init, sizeof(page_init));
+    if(written != sizeof(page_init)) {
+        av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=%d)\n", page_num);
+        return AVERROR(EIO);
+    }
+
+    return page_num;
+}
+
 static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size)
 {
     NewforContext *s = h->priv_data;
     int page_num = 0;
-    int written;
     const unsigned n = size / teletext_pkt_size;
-    uint8_t page_init[5] = { 0x0E, 0x15, 0, 0 ,0 };
 
     av_log(h, AV_LOG_TRACE, "newfor write page (init)\n");
 
@@ -152,17 +167,7 @@ static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size)
             av_log(s, AV_LOG_DEBUG, "page num not located in packet %d/%d\n", i, n);
     }
 
-    page_init[2] = hamming_8_4_coding(page_num / 100);       //hundreds
-    page_init[3] = hamming_8_4_coding((page_num / 10) % 10); //tens
-    page_init[4] = hamming_8_4_coding(page_num % 10);        //units
-
-    written = s->tcp_conn->prot->url_write(s->tcp_conn, page_init, sizeof(page_init));
-    if(written != sizeof(page_init)) {
-        av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=%d)\n", page_num);
-        return AVERROR(EIO);
-    }
-
-    return page_num;
+    return newfor_connect_internal(s, page_num);
 }
 
 static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int size, int page_num)
@@ -257,7 +262,9 @@ static int newfor_write(URLContext *h, const uint8_t *buf, int size)
 
 static int newfor_close(URLContext *h)
 {
+    NewforContext *s = h->priv_data;
     av_log(h, AV_LOG_TRACE, "newfor close\n");
+    newfor_connect_internal(s, 999);
     return 0;
 }
 
