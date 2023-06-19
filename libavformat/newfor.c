@@ -62,8 +62,6 @@ typedef struct NewforContext {
 } NewforContext;
 
 #define OFFSET(x) offsetof(NewforContext, x)
-#define D AV_OPT_FLAG_DECODING_PARAM
-#define E AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
     { NULL }
 };
@@ -92,12 +90,6 @@ static int newfor_open(URLContext *h, const char *uri, int flags)
     av_dict_free(&opts);
 
     return err;
-}
-
-static int newfor_read(URLContext *h, uint8_t *buf, int size)
-{
-    av_log(h, AV_LOG_TRACE, "newfor read size %d\n", size);
-    return 0;
 }
 
 static int newfor_get_page_num(const uint8_t *buf)
@@ -271,7 +263,6 @@ static int newfor_close(URLContext *h)
 const URLProtocol ff_newfor_protocol = {
     .name                = "newfor",
     .url_open            = newfor_open,
-    .url_read            = newfor_read,
     .url_write           = newfor_write,
     .url_close           = newfor_close,
     .priv_data_size      = sizeof(NewforContext),
