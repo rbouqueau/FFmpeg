@@ -3388,6 +3388,14 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .type      = AVMEDIA_TYPE_SUBTITLE,
         .name      = "dvb_teletext",
         .long_name = NULL_IF_CONFIG_SMALL("DVB teletext"),
+        .props     = AV_CODEC_PROP_TEXT_SUB,
+    },
+    {
+        .id        = AV_CODEC_ID_DVB_TELETEXT,
+        .type      = AVMEDIA_TYPE_SUBTITLE,
+        .name      = "teletext",
+        .long_name = NULL_IF_CONFIG_SMALL("Teletext subtitle"),
+        .props     = AV_CODEC_PROP_TEXT_SUB,
     },
     {
         .id        = AV_CODEC_ID_SRT,
