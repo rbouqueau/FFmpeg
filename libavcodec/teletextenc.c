@@ -1,7 +1,7 @@
 /*
  * Teletext subtitle encoder shared functionality
  * Copyright (c) 2023 Motion Spell - Romain Bouqueau
- * based on BSD2-licensed source code written by:
+ * based on BSD2-licensed Teletext encoder source code written by:
  *   Copyright (c) 2022 Benjamin Bricard
  *   Copyright (c) 2022 Leandre Moudar
  *   Copyright (c) 2022 Florian Mahieu
@@ -242,7 +242,7 @@ static void ttxPacketStuffing(TeletextPacket *ttxPacket) {
 
 /**
  * @brief Set the Magazine PacketNumber 
- * This functions facilitates the inserting of magazine and packet number into Teletext structure
+ * This functions facilitate the inserting of magazine and packet number into Teletext structure
  * @param ttxPacket Teletext Packet to be modified
  * @param magazine Magazine number of the Teletext packet (range 0 - 7)
  * @param packetNumber Packet number of the Teletext packet
@@ -351,6 +351,8 @@ typedef struct {
     int subtitle_page_num;
     TeletextPage *subtitle_page;
     TeletextAspect textAspect;
+    ControlBits controlbitSubtitlePage;
+    int nb_rows;
 } TeletextContext;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -365,7 +367,7 @@ typedef struct {
  * @param control_bits Those bits are used to set the behaviour/parameters of a page and its packets. ETSI EN 300 706 => 9.3.1.3 Control bits 
  * @param dataByte Data of the header row (can be text characters). To be displayed or not (depending on control bits). The last 8 bytes are commonly used to display a real time clock (hh:mm:ss). All bytes have to be initialized, thus fill unused bytes by using spaces
  */
-static void setHeaderPacket(TeletextPage *ttxPage, uint16_t pageNumber, uint16_t subcode,ControlBits control_bits, uint8_t dataByte[32]) {
+static void setHeaderPacket(TeletextPage *ttxPage, uint16_t pageNumber, uint16_t subcode, ControlBits control_bits, uint8_t dataByte[32]) {
     ttxPage->pageNumber = (pageNumber & 0x07FF); //This mask allows only the necessary data to be retained
     //Page Address & Control Bits field of the header are coded in Hamming8/4 and swapped
     ttxPage->headerPacket.page_number_units = swap_byte(hamming_8_4_coding(pageNumber & 0x000F));
@@ -576,7 +578,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     if(textAspect->verticalPadding > 1.0 || textAspect->verticalPadding < 0.0) {
         textAspect->verticalPadding = 0.0;
     }
-    outputText->row = (NB_ROW-1) * (textAspect->verticalPadding);
+    outputText->row = s->nb_rows + (NB_ROW-1) * (textAspect->verticalPadding);
     //Debug: printf("Display line : %d | text : %s  color : %d  padding top %f\n", outputText->row, inputText, textAspect->color, textAspect->verticalPadding);
 
     outputText->rowSpan = 2; //depends on double height (standard = 1) (to be removed and applied with style)
@@ -719,11 +721,6 @@ static uint8_t/*bool*/ addPageToWriter(TeletextContext *s, PageWriterManager *pa
         return 1;
     }
 }
-
-//Timing reference between each packets
-#define PES_PACKET_TELETEXT_TIMING_REF 40E-3 //40 ms
-#define PES_DATA_FIELD_SIZE 139 //Size of the packet = 139 bytes 
-
 //Use this macro to fill the line_offset_params field of the PESDataField structure
 #define CONCAT_BITS_LINE_OFFSET_PARAM(field_parity,line_offset) (0x3 << 6) | (field_parity << 5) | line_offset
 
@@ -850,10 +847,8 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
     for(int packIndex=0; packIndex<3; packIndex++) { //go through the data field
         uint8_t *ptrTtx;
 
-#if 0
         if (dataField.data_unit_id[packIndex] == DATA_UNIT_STUFFING)
             continue;
-#endif
 
         put_bits(pb, 8, dataField.data_unit_id[packIndex]);
         put_bits(pb, 8, dataField.data_unit_length[packIndex]);
@@ -907,19 +902,24 @@ static void teletext_color_cb(void *priv, unsigned int color, av_unused unsigned
     find_closest_color(&s->textAspect, color);
 }
 
-static void teletext_text_cb(void *priv, const char *text, int len) {
+static void teletext_sendpage_cb(void *priv) {
     TeletextContext *s = priv;
-    uint8_t dataHeaderSubtitlePage[32] = {0};
-    ControlBits controlbitSubtitlePage = ControlBits_default;
+
+    //Add the subtitle page to the writer
+    addPageToWriter(s, &s->pageWRMng, s->subtitle_page);
+
+    //Add a new page header to display the subtitle page
+    addPageToWriter(s, &s->pageWRMng, s->home_page);
+}
+
+static void teletext_addline_cb(void *priv, const char *text, int len) {
+    TeletextContext *s = priv;
     TeletextDispText dispTextSubtitlePage = {0}; // dispText.formattedText have to be freed after each uses
-    uint8_t/*bool*/ lang[3] = {1,0,0};
     int ret;
+    uint8_t/*bool*/ lang[3] = {1,0,0};
+    setControlBits(&s->controlbitSubtitlePage, 0xBD/*1011 1101*/, lang);
 
-    setControlBits(&controlbitSubtitlePage, 0xBD/*1011 1101*/, lang);
-    formatHeaderText("Teletext Page", dataHeaderSubtitlePage);
-    setHeaderPacket(s->subtitle_page, s->subtitle_page_num, 0x0000, controlbitSubtitlePage, dataHeaderSubtitlePage);
-
-    ret = formatDisplayableText(s, text, len, &dispTextSubtitlePage, &s->textAspect, controlbitSubtitlePage.C6_subtitle, controlbitSubtitlePage.C12_C13_C14_nationalOption);
+    ret = formatDisplayableText(s, text, len, &dispTextSubtitlePage, &s->textAspect, s->controlbitSubtitlePage.C6_subtitle, s->controlbitSubtitlePage.C12_C13_C14_nationalOption);
     if(ret < 0) {
         av_log(s->avctx, AV_LOG_ERROR, "Aborting. Error when formatting text: %s.\n", av_err2str(ret));
         return;
@@ -928,18 +928,15 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
     for(uint8_t nb_row = 0; nb_row < dispTextSubtitlePage.nbRowsUsed; nb_row++) {
         uint8_t buff[40];
         memcpy(buff, dispTextSubtitlePage.formattedText+(CHARACTER_PER_ROW * nb_row), CHARACTER_PER_ROW);
-        setDisplayablePacket(s->subtitle_page, (dispTextSubtitlePage.row + (dispTextSubtitlePage.rowSpan * nb_row)), buff);
-    } 
+        setDisplayablePacket(s->subtitle_page, s->nb_rows + (dispTextSubtitlePage.row + (dispTextSubtitlePage.rowSpan * nb_row)), buff);
+    }
+    s->nb_rows += dispTextSubtitlePage.nbRowsUsed;
     av_free(dispTextSubtitlePage.formattedText);
-    addPageToWriter(s, &s->pageWRMng, s->subtitle_page); //add the subtitle page to the writer
-
-    //Add a new page header to display the subtitle page
-    addPageToWriter(s, &s->pageWRMng, s->home_page);
 }
 
 static const ASSCodesCallbacks teletext_callbacks = {
-    .text          = teletext_text_cb,
-    .end          = teletext_sendpage_cb,
+    .text          = teletext_addline_cb,
+    .end           = teletext_sendpage_cb,
     .color         = teletext_color_cb,
 };
 
@@ -952,8 +949,14 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
     ASSDialog *dialog;
     int i;
 
+    uint8_t dataHeaderSubtitlePage[32] = {0};
+    formatHeaderText("Teletext Page", dataHeaderSubtitlePage);
+    setHeaderPacket(s->subtitle_page, s->subtitle_page_num, 0x0000, s->controlbitSubtitlePage, dataHeaderSubtitlePage);
+
     s->pageWRMng = (PageWriterManager){0};
     s->textAspect = (TeletextAspect){0}; // reset styling
+    s->controlbitSubtitlePage = ControlBits_default;
+    s->nb_rows = 0;
 
     init_put_bits(&s->pb, buf, bufsize);
 
