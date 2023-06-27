@@ -1014,9 +1014,6 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
     TeletextContext *s = avctx->priv_data;
     s->avctx = avctx;
 
-    if(!(s->ass_ctx = ff_ass_split(avctx->subtitle_header)))
-        return AVERROR_INVALIDDATA;
-
     //Home Page
     s->home_page_num = 0x100;
     s->home_page = av_calloc(1, sizeof(TeletextPage));
