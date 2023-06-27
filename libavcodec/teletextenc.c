@@ -850,8 +850,10 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
     for(int packIndex=0; packIndex<3; packIndex++) { //go through the data field
         uint8_t *ptrTtx;
 
+#if 0
         if (dataField.data_unit_id[packIndex] == DATA_UNIT_STUFFING)
             continue;
+#endif
 
         put_bits(pb, 8, dataField.data_unit_id[packIndex]);
         put_bits(pb, 8, dataField.data_unit_length[packIndex]);
