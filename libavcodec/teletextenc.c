@@ -462,7 +462,7 @@ static char *applyNationalOption(TeletextContext *s, const char *inputText, uint
             if(!strcmp(latinNationalOptionSub_set[nationalOptionVal][k], substr)) {
                 speCharFound = 0; //We found a special character/string to be replaced
                 outputText[i-reduceSize] = natoptValues[k];
-                reduceSize += speCharSize - 1; //compute the space gained by replacing this special character
+                reduceSize += speCharSize - 1; //Compute the space gained by replacing this special character
                 i += speCharSize - 1 ;
 
                 outputText = av_realloc(outputText, sizeof(char) * ((inputTextSize+1) - reduceSize)); //Reduce the memory size, +1 to get the space to put an \0 at the end
@@ -586,14 +586,14 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     if(!inputTextNatOpt)
         return AVERROR(ENOMEM);
 
-    textSize = strlen(inputTextNatOpt); //length of string 
+    textSize = strlen(inputTextNatOpt); //length of string
    
     //Apply the color for each rows
     if(textAspect->color != SPAC_ATTR_ALPHA_WHITE) {
         startOffset += 1;
     }
 
-    //Add offset due to subtilte box
+    //Add offset due to subtitle box
     if(C6_subtitle) {
         startOffset += 2;
         endOffset += 1;
@@ -762,7 +762,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
 
     //init a data field and teletext packet
     dataField = PESDataField_default; //initialize data field structure
-    ttxPacket = TeletextPacket_default; //initializeteletext packet structure
+    ttxPacket = TeletextPacket_default; //initialize teletext packet structure
 
     if(pageWrMng->nbPages > 0) { //check if there is a page to write
         if(pageWrMng->firstPageWrittenPackets == 0) { // header to be written
@@ -809,7 +809,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
                     }
                 }
             }
-            if(nb_packet < 3) {//Add stuffing byte
+            if(nb_packet < 3) { //Add stuffing byte
                 ttxPacketStuffing(&ttxPacket);
                 for(int pac = nb_packet; pac<3; pac++) {
                     dataField.teletext_packet[pac] = ttxPacket;
@@ -849,6 +849,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
     //Writing data
     for(int packIndex=0; packIndex<3; packIndex++) { //go through the data field
         uint8_t *ptrTtx;
+
         if (dataField.data_unit_id[packIndex] == DATA_UNIT_STUFFING)
             continue;
 
@@ -936,6 +937,7 @@ static void teletext_text_cb(void *priv, const char *text, int len) {
 
 static const ASSCodesCallbacks teletext_callbacks = {
     .text          = teletext_text_cb,
+    .end          = teletext_sendpage_cb,
     .color         = teletext_color_cb,
 };
 
