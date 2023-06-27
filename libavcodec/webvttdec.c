@@ -186,7 +186,7 @@ static int webvtt_event_to_ass(AVBPrint *buf, const char *p, const WebVTTTagRepl
 
     for (i = WEBVTT_TAG_REPLACE_NUM; i < webvtt_tag_replace_num_entries; i++)
         if (!strcmp(webvtt_tag_replace[i].from, WEBVTT_ROOT_TAG))
-            av_bprintf(buf, "</"WEBVTT_ROOT_TAG">");
+            av_bprintf(buf, "%s", webvtt_tag_replace[i].to);
 
     return 0;
 }
