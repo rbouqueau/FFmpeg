@@ -24,6 +24,20 @@
 #include <stdint.h>
 
 #include "libavutil/attributes.h"
+#include "libavutil/common.h"
+
+/**
+ * @brief Encode a byte with odd parity
+ * Bits have to be like this:
+ * MSb -   -   -   -   -   -   LSb
+ * 0   b7  b6  b5  b4  b3  b2  b1
+ * 0x7F (max value)
+ * @param byte byte to be encoded
+ * @return uint8_t Encoded byte
+ */
+static av_always_inline uint8_t odd_parity_coding(uint8_t byte) {
+    return (!av_parity(byte) << 7 | (0x7F & byte));
+}
 
 /**
  * @brief Encode a byte in hamming8/4

@@ -114,7 +114,7 @@ static int newfor_write_page_off_air(URLContext *h)
 {
     NewforContext *s = h->priv_data;
     int written;
-    const uint8_t off_air[] = { 0x18 };
+    const uint8_t off_air[] = { odd_parity_coding(0x18) };
 
     av_log(h, AV_LOG_TRACE, "newfor write page (off-air)\n");
 
@@ -131,7 +131,8 @@ static int newfor_write_page_off_air(URLContext *h)
 static int newfor_connect_internal(NewforContext *s, int page_num)
 {
     int written;
-    uint8_t page_init[5] = { 0x0E, 0x15,
+    uint8_t page_init[5] = { odd_parity_coding(0x0E),
+        0x15,                                     //hammencoded(0)
         hamming_8_4_coding(page_num / 100),       //hundreds
         hamming_8_4_coding((page_num / 10) % 10), //tens
         hamming_8_4_coding(page_num % 10)         //units
@@ -176,7 +177,7 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
 
     av_log(h, AV_LOG_TRACE, "newfor write page (send data)\n");
 
-    pages[0] = 0x0F;
+    pages[0] = odd_parity_coding(0x0F);
     pages[1] = hamming_8_4_coding(n); //TODO: clear bits = 8?
 
     for(unsigned i=0; i<n; ++i) {
@@ -211,7 +212,7 @@ static int newfor_write_page_on_air(URLContext *h)
 {
     NewforContext *s = h->priv_data;
     int written;
-    const uint8_t on_air[] = { 0x10 };
+    const uint8_t on_air[] = { odd_parity_coding(0x10) };
 
     av_log(h, AV_LOG_TRACE, "newfor write page (on air)\n");
 
