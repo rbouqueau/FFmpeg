@@ -27,6 +27,7 @@
 #define NEWFOR_MAX_PKT_PER_PAGE 7
 #define NEWFOR_SAFE(a) { int ret = a; if(ret<0) return ret; }
 
+//The reference format is the MPEG2-TS payload format.
 const int teletext_pkt_size = 3/*pes fields*/ + 40/*teletext_page_size*/ + 3/*header*/;
 
 static uint8_t hamming_8_4_decode(uint8_t a) {
@@ -122,6 +123,7 @@ static int newfor_write_page_off_air(URLContext *h)
         av_log(s, AV_LOG_ERROR, "Unable to write off-air command\n");
         return AVERROR(EIO);
     }
+    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
 
     return 0;
 }
@@ -130,15 +132,16 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
 {
     int written;
     uint8_t page_init[5] = { 0x0E, 0x15,
-        hamming_8_4_coding(page_num / 100),       //hundreds };
+        hamming_8_4_coding(page_num / 100),       //hundreds
         hamming_8_4_coding((page_num / 10) % 10), //tens
-        hamming_8_4_coding(page_num % 10)        //units
+        hamming_8_4_coding(page_num % 10)         //units
     };
     written = s->tcp_conn->prot->url_write(s->tcp_conn, page_init, sizeof(page_init));
     if(written != sizeof(page_init)) {
         av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=%d)\n", page_num);
         return AVERROR(EIO);
     }
+    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
 
     return page_num;
 }
@@ -199,6 +202,7 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
         av_log(s, AV_LOG_ERROR, "Unable to send subtitle data\n");
         return AVERROR(EIO);
     }
+    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
 
     return read;
 }
@@ -216,6 +220,7 @@ static int newfor_write_page_on_air(URLContext *h)
         av_log(s, AV_LOG_ERROR, "Unable to write on-air command\n");
         return AVERROR(EIO);
     }
+    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
 
     return 0;
 }
