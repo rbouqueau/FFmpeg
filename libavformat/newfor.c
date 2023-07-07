@@ -132,14 +132,14 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
 {
     int written;
     uint8_t page_init[5] = { odd_parity_coding(0x0E),
-        0x15,                                     //hammencoded(0)
-        hamming_8_4_coding(page_num / 100),       //hundreds
-        hamming_8_4_coding((page_num / 10) % 10), //tens
-        hamming_8_4_coding(page_num % 10)         //units
+        0x15,                                         //hammencoded(0)
+        hamming_8_4_coding(page_num / 0x100),         //hundreds
+        hamming_8_4_coding((page_num / 0x10) % 0x10), //tens
+        hamming_8_4_coding(page_num % 0X10)           //units
     };
     written = s->tcp_conn->prot->url_write(s->tcp_conn, page_init, sizeof(page_init));
     if(written != sizeof(page_init)) {
-        av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=%d)\n", page_num);
+        av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=0x%X)\n", page_num);
         return AVERROR(EIO);
     }
     s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
