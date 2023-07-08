@@ -490,7 +490,7 @@ static void insertFormattedSub(TeletextDispText *outputText, int index, uint8_t 
 
     //Copy all selected characters into a buffer
     for(int j = index - rowCharacterUsage; j < index; j++) {
-        linebuff[j_buff] = inputText[j]; //converting character to hexa //Add national option here to hadle conversion
+        linebuff[j_buff] = inputText[j]; //converting character to hexa //Add national option here to handle conversion
         j_buff++;
     }
 
@@ -528,7 +528,8 @@ static void insertFormattedSub(TeletextDispText *outputText, int index, uint8_t 
         outputText->formattedText[paddingLeftOffset + startOffset-3 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_DOUBLE_HEIGHT; //double height (not depends on style for now) (to be removed and applied with style)
         outputText->formattedText[paddingLeftOffset + startOffset-2 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
         outputText->formattedText[paddingLeftOffset + startOffset-1 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
-        outputText->formattedText[paddingLeftOffset + startOffset + rowCharacterUsage + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_END_BOX;
+        outputText->formattedText[paddingLeftOffset + startOffset + rowCharacterUsage+0 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_END_BOX;
+        outputText->formattedText[paddingLeftOffset + startOffset + rowCharacterUsage+1 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_END_BOX;
     }
 
     //Write text
