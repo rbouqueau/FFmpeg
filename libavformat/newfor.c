@@ -206,26 +206,22 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
     NewforContext *s = h->priv_data;
     int written;
     int read = 0;
-    int row_num = 1;
-    const unsigned n = (size - (size % teletext_pkt_size)/*skip header*/) / teletext_pkt_size;
+    unsigned n = (size - (size % teletext_pkt_size)/*skip header*/) / teletext_pkt_size;
+    int row_num = 23 - n;
     uint8_t pages[2/*header*/ + NEWFOR_MAX_PKT_PER_PAGE * (2/*RH RL*/ + 40/*data*/)] = {0};
 
     av_log(h, AV_LOG_TRACE, "newfor write page (send data)\n");
+
+    if (n > NEWFOR_MAX_PKT_PER_PAGE) {
+        av_log(s, AV_LOG_ERROR, "More than %d packets for page 0x%X. Truncating.\n", NEWFOR_MAX_PKT_PER_PAGE, page_num);
+        n = NEWFOR_MAX_PKT_PER_PAGE;
+    }
 
     pages[0] = odd_parity_coding(0x0F);
     pages[1] = hamming_8_4_coding(n); //TODO: clear bits = 8? instead of erasing pages, see the other comment below about the optimization
 
     for(unsigned i=0; i<n; ++i) {
         uint8_t *page = pages + 2 + i * (2 + 40);
-
-        if(i > 0 && *(buf + 1 + i * teletext_pkt_size) == 0x10)
-            break; // end of page
-
-        if (i > 6) {
-            av_log(s, AV_LOG_ERROR, "More than %d packets for page 0x%X. Truncating.\n", NEWFOR_MAX_PKT_PER_PAGE, page_num);
-            break;
-        }
-
         page[0] = hamming_8_4_coding((row_num & 0xF0) >> 4);
         page[1] = hamming_8_4_coding( row_num & 0x0F);
         for (int j=0; j<40; ++j) {
@@ -233,7 +229,7 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
         }
         row_num++;
     }
-    read = 1 + (row_num - 1) * teletext_pkt_size;
+    read = 1 + n * teletext_pkt_size;
 
     written = s->tcp_conn->prot->url_write(s->tcp_conn, pages, 2 + n * (2 + 40));
     if(written != 2 + n * (2 + 40)) {

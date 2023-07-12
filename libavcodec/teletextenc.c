@@ -40,6 +40,7 @@
 
 #define CHARACTER_PER_ROW 40 //Max number of characters per row
 #define NB_ROW 25 //Max numer of row 
+#define FIRST_ROW 0//20 //Display at the bottom, 3 lines max
 #define NB_ENHANCEMENT_PACKET 3
 
 //////////////////////////////////////////////////////////////////////
@@ -394,6 +395,7 @@ static uint8_t/*bool*/ setDisplayablePacket(TeletextPage *ttxPage, uint8_t rowNu
         for(uint8_t i=0; i<40; i++) {
             ttxPage->displayablePackets[rowNumber-1].data_bytes[i] = swap_byte(odd_parity_coding(dataByte[i]));
         }
+
         //set to true the right row
         ttxPage->hasDisplayablePacket[rowNumber-1] = 1;
 
@@ -447,7 +449,7 @@ static char *applyNationalOption(TeletextContext *s, const char *inputText, uint
             substr[speCharSize] = '\0'; //Reset the length of the character
             strncpy(substr, inputText+i, speCharSize);
             if(!strcmp(latinNationalOptionSub_set[nationalOptionVal][k], substr)) {
-                speCharFound = 0; //We found a special character/string to be replaced
+                speCharFound = 1; //We found a special character/string to be replaced
                 outputText[i-reduceSize] = natoptValues[k];
                 reduceSize += speCharSize - 1; //Compute the space gained by replacing this special character
                 i += speCharSize - 1 ;
@@ -564,7 +566,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
         textAspect->verticalPadding = 0.0;
     }
     outputText->row = s->nb_rows + (NB_ROW-1) * (textAspect->verticalPadding);
-    //Debug: printf("Display line : %d | text : %s  color : %d  padding top %f\n", outputText->row, inputText, textAspect->color, textAspect->verticalPadding);
+    av_log(s->avctx, AV_LOG_TRACE, "Display line : %d | text : %s  color : %d  padding top %f\n", outputText->row, inputText, textAspect->color, textAspect->verticalPadding);
 
     outputText->rowSpan = 2; //depends on double height (standard = 1) (to be removed and applied with style)
 
@@ -882,11 +884,11 @@ static void teletext_color_cb(void *priv, unsigned int color, av_unused unsigned
 static void teletext_sendpage_cb(void *priv) {
     TeletextContext *s = priv;
 
-    //Add a new page header to display the subtitle page
-    addPageToWriter(s, &s->pageWRMng, s->home_page);
-
     //Add the subtitle page to the writer
     addPageToWriter(s, &s->pageWRMng, s->subtitle_page);
+
+    //Add a new page header to display the subtitle page
+    addPageToWriter(s, &s->pageWRMng, s->home_page);
 }
 
 static void teletext_addline_cb(void *priv, const char *text, int len) {
@@ -905,7 +907,8 @@ static void teletext_addline_cb(void *priv, const char *text, int len) {
     for(uint8_t nb_row = 0; nb_row < dispTextSubtitlePage.nbRowsUsed; nb_row++) {
         uint8_t buff[40];
         memcpy(buff, dispTextSubtitlePage.formattedText+(CHARACTER_PER_ROW * nb_row), CHARACTER_PER_ROW);
-        setDisplayablePacket(s->subtitle_page, s->nb_rows + (dispTextSubtitlePage.row + (dispTextSubtitlePage.rowSpan * nb_row)), buff);
+        if (!setDisplayablePacket(s->subtitle_page, FIRST_ROW + s->nb_rows + (dispTextSubtitlePage.row + (dispTextSubtitlePage.rowSpan * nb_row)), buff))
+            av_log(s->avctx, AV_LOG_WARNING, "Warning: text won't be encoded because it is beyond the displayable area: \"%s\".\n", text);
     }
     s->nb_rows += dispTextSubtitlePage.nbRowsUsed;
     av_free(dispTextSubtitlePage.formattedText);
@@ -971,6 +974,12 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
 
         ff_ass_free_dialog(&dialog);
     }
+
+    /*extradata: teletext_type:
+     * This 5-bit field indicates the type of Teletext page indicated. (0x01 Initial Teletext page)
+     * teletext_magazine_number: This is a 3-bit field which identifies the magazine number.
+     * teletext_page_number: This is an 8-bit field giving two 4-bit hex digits identifying the page number. 
+     */
 
     flush_put_bits(&s->pb);
     return put_bytes_output(&s->pb);
