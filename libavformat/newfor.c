@@ -29,6 +29,7 @@
 
 //The reference format is the MPEG2-TS payload format.
 const int teletext_pkt_size = 3/*pes fields*/ + 40/*teletext_page_size*/ + 3/*header*/;
+const int pes_data_identifier = 0x10;
 
 static uint8_t hamming_8_4_decode(uint8_t a) {
 	static const uint8_t hamming_8_4_decode_table[256] = {
@@ -110,13 +111,12 @@ static int newfor_get_page_num(const uint8_t *buf)
         return 0;
 }
 
-static int newfor_write_page_off_air(URLContext *h)
+static int newfor_write_page_off_air_internal(NewforContext *s)
 {
-    NewforContext *s = h->priv_data;
     int written;
     const uint8_t off_air[] = { odd_parity_coding(0x18) };
 
-    av_log(h, AV_LOG_TRACE, "newfor write page (off-air)\n");
+    av_log(s, AV_LOG_TRACE, "newfor write page (off-air)\n");
 
     written = s->tcp_conn->prot->url_write(s->tcp_conn, off_air, sizeof(off_air));
     if(written != sizeof(off_air)) {
@@ -131,12 +131,17 @@ static int newfor_write_page_off_air(URLContext *h)
 static int newfor_connect_internal(NewforContext *s, int page_num)
 {
     int written;
-    uint8_t page_init[5] = { odd_parity_coding(0x0E),
-        0x15,                                         //hammencoded(0)
+    uint8_t page_init[5] = {
+        odd_parity_coding(0x0E),
+        hamming_8_4_coding(0x00),
         hamming_8_4_coding(page_num / 0x100),         //hundreds
         hamming_8_4_coding((page_num / 0x10) % 0x10), //tens
         hamming_8_4_coding(page_num % 0X10)           //units
     };
+
+    //TODO: optimization: use the erasement flag if the page_num is the same
+    NEWFOR_SAFE(newfor_write_page_off_air_internal(s));
+
     written = s->tcp_conn->prot->url_write(s->tcp_conn, page_init, sizeof(page_init));
     if(written != sizeof(page_init)) {
         av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=0x%X)\n", page_num);
@@ -147,65 +152,35 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
     return page_num;
 }
 
-static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size)
+static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size, int *read)
 {
     NewforContext *s = h->priv_data;
     int page_num = 0;
-    const unsigned n = size / teletext_pkt_size;
+    const unsigned n_pkt = size / teletext_pkt_size;
 
     av_log(h, AV_LOG_TRACE, "newfor write page (init)\n");
 
-    for(unsigned i=0; i<n; ++i) {
-        page_num = newfor_get_page_num(buf + 1/*skip data_identifier*/ + i * teletext_pkt_size + 2);
-        if (page_num != 0)
-            break;
-        else
-            av_log(s, AV_LOG_DEBUG, "page num not located in packet %d/%d\n", i, n);
-    }
+    for(unsigned i=0; i<n_pkt; ++i) {
+        if(*(buf + *read) == pes_data_identifier) {
+            if (i>0 && page_num)
+                break; //new page
 
-    return newfor_connect_internal(s, page_num);
-}
+            page_num = newfor_get_page_num(buf + *read + 1/*skip data_identifier*/ + 2);
 
-static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int size, int page_num)
-{
-    NewforContext *s = h->priv_data;
-    int written;
-    int read = 0;
-    int row_num = 1;
-    const unsigned n = size / teletext_pkt_size;
-    uint8_t pages[2/*header*/ + NEWFOR_MAX_PKT_PER_PAGE * (2/*RH RL*/ + 40/*data*/)] = {0};
-
-    av_log(h, AV_LOG_TRACE, "newfor write page (send data)\n");
-
-    pages[0] = odd_parity_coding(0x0F);
-    pages[1] = hamming_8_4_coding(n); //TODO: clear bits = 8?
-
-    for(unsigned i=0; i<n; ++i) {
-        uint8_t *page = pages + 2 + i * (2 + 40);
-
-        if(i > 0 && *(buf + 1 + i * teletext_pkt_size) == 0x10)
-            break; // end of page
-
-        if (i > 6) {
-            av_log(s, AV_LOG_ERROR, "More than %d packets for page 0x%X. Truncating.\n", NEWFOR_MAX_PKT_PER_PAGE, page_num);
-            break;
+            if(page_num != 0) {
+                *read += 1; //add data_identifier byte
+            } else
+                av_log(s, AV_LOG_DEBUG, "page num not located in packet %d/%d\n", i, n_pkt);
         }
 
-        page[0] = hamming_8_4_coding((row_num & 0xF0) >> 4);
-        page[1] = hamming_8_4_coding( row_num & 0x0F);
-        memcpy(page + 2, buf + 1 + i * teletext_pkt_size + 3, 40);
-        row_num++;
+        *read += teletext_pkt_size;
     }
-    read = 1 + (row_num - 1) * teletext_pkt_size;
+    if(!page_num)
+        return 0;
+    if(page_num == 0x100) //home page //FIXME: find a more reliable way to identify it
+        return 0;
 
-    written = s->tcp_conn->prot->url_write(s->tcp_conn, pages, 2 + n * (2 + 40));
-    if(written != 2 + n * (2 + 40)) {
-        av_log(s, AV_LOG_ERROR, "Unable to send subtitle data\n");
-        return AVERROR(EIO);
-    }
-    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
-
-    return read;
+    return newfor_connect_internal(s, page_num);
 }
 
 static int newfor_write_page_on_air(URLContext *h)
@@ -226,23 +201,84 @@ static int newfor_write_page_on_air(URLContext *h)
     return 0;
 }
 
-static int newfor_write_page(URLContext *h, const uint8_t *buf, int size)
+static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int size, int page_num)
 {
-    int page_num = 0;
+    NewforContext *s = h->priv_data;
+    int written;
     int read = 0;
+    int row_num = 1;
+    const unsigned n = (size - (size % teletext_pkt_size)/*skip header*/) / teletext_pkt_size;
+    uint8_t pages[2/*header*/ + NEWFOR_MAX_PKT_PER_PAGE * (2/*RH RL*/ + 40/*data*/)] = {0};
 
-    NEWFOR_SAFE(newfor_write_page_off_air(h));
-    NEWFOR_SAFE(page_num = newfor_write_page_init(h, buf, size));
-    NEWFOR_SAFE(read = newfor_write_page_send_data(h, buf, size, page_num));
+    av_log(h, AV_LOG_TRACE, "newfor write page (send data)\n");
+
+    pages[0] = odd_parity_coding(0x0F);
+    pages[1] = hamming_8_4_coding(n); //TODO: clear bits = 8? instead of erasing pages, see the other comment below about the optimization
+
+    for(unsigned i=0; i<n; ++i) {
+        uint8_t *page = pages + 2 + i * (2 + 40);
+
+        if(i > 0 && *(buf + 1 + i * teletext_pkt_size) == 0x10)
+            break; // end of page
+
+        if (i > 6) {
+            av_log(s, AV_LOG_ERROR, "More than %d packets for page 0x%X. Truncating.\n", NEWFOR_MAX_PKT_PER_PAGE, page_num);
+            break;
+        }
+
+        page[0] = hamming_8_4_coding((row_num & 0xF0) >> 4);
+        page[1] = hamming_8_4_coding( row_num & 0x0F);
+        for (int j=0; j<40; ++j) {
+            *(page + 2 + j) = swap_byte(*(buf + 1 + i * teletext_pkt_size + 3 + j));
+        }
+        row_num++;
+    }
+    read = 1 + (row_num - 1) * teletext_pkt_size;
+
+    written = s->tcp_conn->prot->url_write(s->tcp_conn, pages, 2 + n * (2 + 40));
+    if(written != 2 + n * (2 + 40)) {
+        av_log(s, AV_LOG_ERROR, "Unable to send subtitle packets\n");
+        return AVERROR(EIO);
+    }
+    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
+
     NEWFOR_SAFE(newfor_write_page_on_air(h));
 
     return read;
 }
 
+static int newfor_write_page(URLContext *h, const uint8_t *buf, int size)
+{
+    int total_read = 0;
+
+    while (total_read < size) {
+        int page_num = 0, read = 0;
+        NEWFOR_SAFE(page_num = newfor_write_page_init(h, buf, size - total_read, &read));
+
+        //skip line 0 that signals the page_num
+        buf += teletext_pkt_size;
+        total_read += teletext_pkt_size;
+        read -= teletext_pkt_size;
+
+        if (page_num != 0 && read > 0)
+            NEWFOR_SAFE(newfor_write_page_send_data(h, buf, read, page_num));
+
+        buf += read;
+        total_read += read;
+    }
+
+    if (total_read != size)
+        av_log(h, AV_LOG_WARNING, "write size mismatch: total_read=%d , size=%d\n", total_read, size);
+
+    return total_read;
+}
+
 static int newfor_write(URLContext *h, const uint8_t *buf, int size)
 {
-    const int num_pages = size % teletext_pkt_size;
     int remaining = size;
+
+    // The dataField.data_identifier(8) is sent once per page
+    const int num_pages = size % teletext_pkt_size;
 
     av_log(h, AV_LOG_TRACE, "newfor write\n");
 

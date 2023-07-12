@@ -283,7 +283,7 @@ typedef struct {
 typedef struct {
     TeletextPage **pages;            //Array of Teletext pages to be displayed
     uint8_t nbPages;                 //Number of pages to be displayed
-    uint8_t firstPageTotPackets;     //Total number of packets to be displayed for the page in first position of the array
+    uint8_t firstPageTotalPackets;   //Total number of packets to be displayed for the page in first position of the array
     uint8_t firstPageWrittenPackets; //Number of packet already written for the page in first position of the array
 } PageWriterManager;
 
@@ -529,7 +529,6 @@ static void insertFormattedSub(TeletextDispText *outputText, int index, uint8_t 
         outputText->formattedText[paddingLeftOffset + startOffset-2 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
         outputText->formattedText[paddingLeftOffset + startOffset-1 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
         outputText->formattedText[paddingLeftOffset + startOffset + rowCharacterUsage+0 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_END_BOX;
-        outputText->formattedText[paddingLeftOffset + startOffset + rowCharacterUsage+1 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_END_BOX;
     }
 
     //Write text
@@ -590,7 +589,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
         startOffset += 1;
     }
 
-    numberSpacingAttrib = startOffset + endOffset; //Compute the total number of added spacing attribute
+    numberSpacingAttrib = startOffset + endOffset; //Compute the total number of added spacing attributes
     rowCharacterUsage = 0;
     lastSpacePos = 0;
     outputText->formattedText = av_malloc(CHARACTER_PER_ROW); //Allocate for 1 row
@@ -622,7 +621,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
             rowCharacterUsage++;
         }
 
-        //The text can't use more than the number max of row available
+        //The text can't use more than the number max of available rows
         if(outputText->nbRowsUsed > NB_ROW) {
             break;
         }
@@ -645,26 +644,26 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
 }
 
 static void compute_nb_packet_first_page(PageWriterManager *pageWrMng) {
-    pageWrMng->firstPageTotPackets = 1; //header mandatory
+    pageWrMng->firstPageTotalPackets = 1; //header mandatory
     pageWrMng->firstPageWrittenPackets = 0;
 
     //Scan for all packets to be displayed
     //Linking page
     if(pageWrMng->pages[0]->hasPageLinking) { 
-        pageWrMng->firstPageTotPackets++;
+        pageWrMng->firstPageTotalPackets++;
     }
 
     //Number of enhancement packets
     for(uint8_t i=0; i<NB_ENHANCEMENT_PACKET; i++) {
         if(pageWrMng->pages[0]->hasPageEnhancementPackets[i]) {
-            pageWrMng->firstPageTotPackets++;
+            pageWrMng->firstPageTotalPackets++;
         }
     }
 
     //Number of displayable packets
     for(uint8_t i=0; i<NB_ROW; i++) {
         if(pageWrMng->pages[0]->hasDisplayablePacket[i]) {
-            pageWrMng->firstPageTotPackets++;
+            pageWrMng->firstPageTotalPackets++;
         }
     }
 }
@@ -733,15 +732,8 @@ static struct __pes_data_field {
 typedef struct __pes_data_field PESDataField;
 
 static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMng, PutBitContext *pb) {
-    static uint8_t/*bool*/ first_call = 0;
     PESDataField dataField;
     TeletextPacket ttxPacket;
-
-    //Initialize the nbPages field during the first call of this function 
-    if(first_call) {
-        pageWrMng->nbPages = 0;
-        first_call = 0;
-    }
 
     //init a data field and teletext packet
     dataField = PESDataField_default; //initialize data field structure
@@ -804,7 +796,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
         }
         
         //Delete the page and move down other pages
-        if(pageWrMng->firstPageWrittenPackets >= pageWrMng->firstPageTotPackets) {
+        if(pageWrMng->firstPageWrittenPackets >= pageWrMng->firstPageTotalPackets) {
             av_free(pageWrMng->pages[0]); //Free the page
             pageWrMng->nbPages--;
             //Move down
@@ -826,10 +818,10 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
             }
         }
     } else { 
-        return 0;
-    }   
+        return 0; //nothing more to process
+    }
 
-    //Writing data
+    //writing data
     for(int packIndex=0; packIndex<3; packIndex++) { //go through the data field
         uint8_t *ptrTtx;
 
@@ -839,8 +831,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
         put_bits(pb, 8, dataField.data_unit_id[packIndex]);
         put_bits(pb, 8, dataField.data_unit_length[packIndex]);
         put_bits(pb, 8, dataField.line_offset_params[packIndex]);
-        ptrTtx = &dataField.teletext_packet[packIndex].framing_code;
-        //Write ttx packet by incrementing the ptr to the first element of the structure 
+        ptrTtx = (uint8_t*)&dataField.teletext_packet[packIndex];
         for(int ttxIndex=0; ttxIndex<43; ttxIndex++) {
             put_bits(pb, 8, *(ptrTtx + ttxIndex));
         }
@@ -891,11 +882,11 @@ static void teletext_color_cb(void *priv, unsigned int color, av_unused unsigned
 static void teletext_sendpage_cb(void *priv) {
     TeletextContext *s = priv;
 
-    //Add the subtitle page to the writer
-    addPageToWriter(s, &s->pageWRMng, s->subtitle_page);
-
     //Add a new page header to display the subtitle page
     addPageToWriter(s, &s->pageWRMng, s->home_page);
+
+    //Add the subtitle page to the writer
+    addPageToWriter(s, &s->pageWRMng, s->subtitle_page);
 }
 
 static void teletext_addline_cb(void *priv, const char *text, int len) {
