@@ -1725,7 +1725,7 @@ static void mpegts_write_pes(AVFormatContext *s, AVStream *st,
                         header_len - (4 + afc_len));
                 buf[4] += stuffing_len;
                 memset(buf + 4 + afc_len, 0xff, stuffing_len);
-            } else {
+            } else if (!is_dvb_teletext) {
                 /* add stuffing */
                 memmove(buf + 4 + stuffing_len, buf + 4, header_len - 4);
                 buf[3] |= 0x20;
@@ -1737,7 +1737,7 @@ static void mpegts_write_pes(AVFormatContext *s, AVStream *st,
             }
         }
 
-        if (is_dvb_subtitle && payload_size == len) {
+        if ((is_dvb_subtitle || is_dvb_teletext) && payload_size == len) {
             memcpy(buf + TS_PACKET_SIZE - len, payload, len - 1);
             buf[TS_PACKET_SIZE - 1] = 0xff; /* end_of_PES_data_field_marker: an 8-bit field with fixed contents 0xff for DVB subtitle */
         } else {
