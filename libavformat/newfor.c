@@ -177,7 +177,7 @@ static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size, i
     }
     if(!page_num)
         return 0;
-    if(page_num == 0x100) //home page //FIXME: find a more reliable way to identify it
+    if(page_num == 0x111) //home page //FIXME: find a more reliable way to identify it
         return 0;
 
     return newfor_connect_internal(s, page_num);
