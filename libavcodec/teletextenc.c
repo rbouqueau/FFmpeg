@@ -38,9 +38,12 @@
 
 //We use the MPEG2-TS payload format as the reference format.
 
+#define FIRST_ROW 20 //Display at the bottom, 3 lines max. Must be > 0 since line 0 is the header.
 #define CHARACTER_PER_ROW 40 //Max number of characters per row
 #define NB_ROW 25 //Max numer of row 
-#define FIRST_ROW 0//20 //Display at the bottom, 3 lines max
+//FIXME: Not enable by default because FFmpeg doesn't allow subtitles to expose extradata and output several packets from one
+//#define ENABLE_HOME_PAGE
+
 #define NB_ENHANCEMENT_PACKET 3
 
 //////////////////////////////////////////////////////////////////////
@@ -367,7 +370,7 @@ static void setHeaderPacket(TeletextPage *ttxPage, uint16_t pageNumber, uint16_t
 
     //Handling control bits
     if(control_bits.C4_erasePage) { ///reset the displayable packet
-        for(uint8_t row=0; row<25; row++) {
+        for(uint8_t row=0; row<NB_ROW; row++) {
             ttxPage->hasDisplayablePacket[row] = 0;
         }
     }
@@ -393,11 +396,11 @@ static uint8_t/*bool*/ setDisplayablePacket(TeletextPage *ttxPage, uint8_t rowNu
     if(/*rowNumber >= 0 &&*/ rowNumber <= 24 && ttxPage->hasHeaderPacket) {
         //Data Bytes of the header are coded in odd parity and swapped
         for(uint8_t i=0; i<40; i++) {
-            ttxPage->displayablePackets[rowNumber-1].data_bytes[i] = swap_byte(odd_parity_coding(dataByte[i]));
+            ttxPage->displayablePackets[rowNumber].data_bytes[i] = swap_byte(odd_parity_coding(dataByte[i]));
         }
 
         //set to true the right row
-        ttxPage->hasDisplayablePacket[rowNumber-1] = 1;
+        ttxPage->hasDisplayablePacket[rowNumber] = 1;
 
         return 1;
     } else {
@@ -527,7 +530,6 @@ static void insertFormattedSub(TeletextDispText *outputText, int index, uint8_t 
     }
 
     if(C6_subtitle) { //Put start and end box
-        outputText->formattedText[paddingLeftOffset + startOffset-3 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_DOUBLE_HEIGHT; //double height (not depends on style for now) (to be removed and applied with style)
         outputText->formattedText[paddingLeftOffset + startOffset-2 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
         outputText->formattedText[paddingLeftOffset + startOffset-1 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
         outputText->formattedText[paddingLeftOffset + startOffset + rowCharacterUsage+0 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_END_BOX;
@@ -565,10 +567,10 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     if(textAspect->verticalPadding > 1.0 || textAspect->verticalPadding < 0.0) {
         textAspect->verticalPadding = 0.0;
     }
-    outputText->row = s->nb_rows + (NB_ROW-1) * (textAspect->verticalPadding);
+    outputText->row = FIRST_ROW + s->nb_rows + (NB_ROW-1) * (textAspect->verticalPadding);
     av_log(s->avctx, AV_LOG_TRACE, "Display line : %d | text : %s  color : %d  padding top %f\n", outputText->row, inputText, textAspect->color, textAspect->verticalPadding);
 
-    outputText->rowSpan = 2; //depends on double height (standard = 1) (to be removed and applied with style)
+    outputText->rowSpan = 1;
 
     //Detects special characters in a string and convert it according to the national option
     inputTextNatOpt = applyNationalOption(s, inputText, inputTextSize, C12_C13_C14_nationalOption);
@@ -586,9 +588,6 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     if(C6_subtitle) {
         startOffset += 2;
         endOffset += 1;
-
-        //Double height (to be removed and applied with style)
-        startOffset += 1;
     }
 
     numberSpacingAttrib = startOffset + endOffset; //Compute the total number of added spacing attributes
@@ -632,7 +631,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     //Format and insert subtitle into the outputText struct
     insertFormattedSub(outputText, i, rowCharacterUsage, inputTextNatOpt, textAspect, startOffset, endOffset, C6_subtitle);
 
-    outputText->row++; //to be in range 1 - 25
+    outputText->row++; //to be in range 1 - NB_ROW(25)
 
     //Check if all rows can be displayed properly
     if(outputText->row + ((outputText->nbRowsUsed-1) * outputText->rowSpan)> NB_ROW) {
@@ -719,12 +718,13 @@ enum DataUnitID {
 //3 teletext packets in one PES Data field
 //Length of the data field => 46 bytes * 3 + 1 byte => 139 bytes
 //PES data field : 139 bytes
+#define MAX_PACKETS 3
 static struct __pes_data_field {
     uint8_t data_identifier;
-    uint8_t data_unit_id[3];
-    uint8_t data_unit_length[3];
-    uint8_t line_offset_params[3]; // (reserved_future_use << 5, field_parity << 4, line_offset ) => 8 bits
-    TeletextPacket teletext_packet[3]; 
+    uint8_t data_unit_id[MAX_PACKETS];
+    uint8_t data_unit_length[MAX_PACKETS];
+    uint8_t line_offset_params[MAX_PACKETS]; // (reserved_future_use << 5, field_parity << 4, line_offset ) => 8 bits
+    TeletextPacket teletext_packet[MAX_PACKETS];
 } const PESDataField_default = {
     .data_identifier = 0x10, 
     .data_unit_id = {DATA_UNIT_STUFFING,DATA_UNIT_STUFFING,DATA_UNIT_STUFFING}, 
@@ -773,7 +773,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
                     dataField.line_offset_params[nb_packet] = CONCAT_BITS_LINE_OFFSET_PARAM(0x1,0xA);
 
                     //fill display packet
-                    setMagazine_PacketNumber(&ttxPacket, (pageWrMng->pages[0]->pageNumber & 0x0700)>>8, nb_disp_pack+1); //nb_disp_pack+1 to be in range 1 to 25
+                    setMagazine_PacketNumber(&ttxPacket, (pageWrMng->pages[0]->pageNumber & 0x0700)>>8, nb_disp_pack);
                     memcpy(ttxPacket.data_block, pageWrMng->pages[0]->displayablePackets[nb_disp_pack].data_bytes, 40);
                     dataField.teletext_packet[nb_packet] = ttxPacket;
 
@@ -781,14 +781,14 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
                     pageWrMng->firstPageWrittenPackets++;
                     
                     nb_packet++;
-                    if(nb_packet == 3) {//Max number of packets carriable by a data field
+                    if(nb_packet == MAX_PACKETS) {//Max number of packets carriable by a data field
                         break;
                     }
                 }
             }
-            if(nb_packet < 3) { //Add stuffing byte
+            if(nb_packet < MAX_PACKETS) { //Add stuffing byte
                 ttxPacketStuffing(&ttxPacket);
-                for(int pac = nb_packet; pac<3; pac++) {
+                for(int pac = nb_packet; pac<MAX_PACKETS; pac++) {
                     dataField.teletext_packet[pac] = ttxPacket;
                     dataField.data_unit_id[pac] = DATA_UNIT_STUFFING;
                     dataField.data_unit_length[pac] = 0x2C;
@@ -824,7 +824,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
     }
 
     //writing data
-    for(int packIndex=0; packIndex<3; packIndex++) { //go through the data field
+    for(int packIndex=0; packIndex<MAX_PACKETS; packIndex++) { //go through the data field
         uint8_t *ptrTtx;
 
         if (dataField.data_unit_id[packIndex] == DATA_UNIT_STUFFING)
@@ -888,7 +888,8 @@ static void teletext_sendpage_cb(void *priv) {
     addPageToWriter(s, &s->pageWRMng, s->subtitle_page);
 
     //Add a new page header to display the subtitle page
-    addPageToWriter(s, &s->pageWRMng, s->home_page);
+    if (s->home_page)
+        addPageToWriter(s, &s->pageWRMng, s->home_page);
 }
 
 static void teletext_addline_cb(void *priv, const char *text, int len) {
@@ -907,7 +908,7 @@ static void teletext_addline_cb(void *priv, const char *text, int len) {
     for(uint8_t nb_row = 0; nb_row < dispTextSubtitlePage.nbRowsUsed; nb_row++) {
         uint8_t buff[40];
         memcpy(buff, dispTextSubtitlePage.formattedText+(CHARACTER_PER_ROW * nb_row), CHARACTER_PER_ROW);
-        if (!setDisplayablePacket(s->subtitle_page, FIRST_ROW + s->nb_rows + (dispTextSubtitlePage.row + (dispTextSubtitlePage.rowSpan * nb_row)), buff))
+        if (!setDisplayablePacket(s->subtitle_page, dispTextSubtitlePage.row - 1 + (dispTextSubtitlePage.rowSpan * nb_row), buff))
             av_log(s->avctx, AV_LOG_WARNING, "Warning: text won't be encoded because it is beyond the displayable area: \"%s\".\n", text);
     }
     s->nb_rows += dispTextSubtitlePage.nbRowsUsed;
@@ -975,10 +976,10 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
         ff_ass_free_dialog(&dialog);
     }
 
-    /*extradata: teletext_type:
+    /* FIXME: set extradata when FFmpeg allows it (needed for MPEG-TS transport) - same for the language
      * This 5-bit field indicates the type of Teletext page indicated. (0x01 Initial Teletext page)
      * teletext_magazine_number: This is a 3-bit field which identifies the magazine number.
-     * teletext_page_number: This is an 8-bit field giving two 4-bit hex digits identifying the page number. 
+     * teletext_page_number: This is an 8-bit field giving two 4-bit hex digits identifying the page number.
      */
 
     flush_put_bits(&s->pb);
@@ -1001,15 +1002,17 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
     s->avctx = avctx;
 
     //Home Page
-    s->home_page_num = 0x100;
+#ifdef ENABLE_HOME_PAGE
+    s->home_page_num = 0x111;
     s->home_page = av_calloc(1, sizeof(TeletextPage));
     if(!s->home_page) {
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
         return AVERROR(ENOMEM);
     }
+#endif
 
     //Subtitle Page
-    s->subtitle_page_num = 0x888;
+    s->subtitle_page_num = 0x100;
     s->subtitle_page = av_calloc(1, sizeof(TeletextPage));
     if(!s->subtitle_page) {
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
