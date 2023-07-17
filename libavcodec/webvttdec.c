@@ -93,7 +93,9 @@ static WebVTTTagReplace* parse_style(const char *p, WebVTTTagReplace *webvtt_tag
                 goto exit;
             }
 
-            name = av_strndup(p, len);
+            name = av_strndup(p-1, len+1);
+            name[0] = '<';
+            name[len] = '>';
             p += len + 1;
         }
 
