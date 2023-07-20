@@ -38,13 +38,13 @@
 
 //We use the MPEG2-TS payload format as the reference format.
 
-#define FIRST_ROW 20 //Display at the bottom, 3 lines max. Must be > 0 since line 0 is the header.
 #define CHARACTER_PER_ROW 40 //Max number of characters per row
-#define NB_ROW 25 //Max numer of row 
-//FIXME: Not enable by default because FFmpeg doesn't allow subtitles to expose extradata and output several packets from one
+#define NB_ROW 25 //Max number of rows
+//FIXME: Not enabled by default because FFmpeg doesn't allow subtitles to expose extradata and output several packets from one
 //#define ENABLE_HOME_PAGE
 
-#define NB_ENHANCEMENT_PACKET 3
+#define MAX_PACKETS 3
+#define NB_ENHANCEMENT_PACKET MAX_PACKETS
 
 //////////////////////////////////////////////////////////////////////
 // Teletext Packet
@@ -567,7 +567,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     if(textAspect->verticalPadding > 1.0 || textAspect->verticalPadding < 0.0) {
         textAspect->verticalPadding = 0.0;
     }
-    outputText->row = FIRST_ROW + s->nb_rows + (NB_ROW-1) * (textAspect->verticalPadding);
+    outputText->row = s->nb_rows + (NB_ROW-1) * (textAspect->verticalPadding);
     av_log(s->avctx, AV_LOG_TRACE, "Display line : %d | text : %s  color : %d  padding top %f\n", outputText->row, inputText, textAspect->color, textAspect->verticalPadding);
 
     outputText->rowSpan = 1;
@@ -623,7 +623,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
         }
 
         //The text can't use more than the number max of available rows
-        if(outputText->nbRowsUsed > NB_ROW) {
+        if(outputText->nbRowsUsed >= NB_ROW) {
             break;
         }
     }
@@ -634,7 +634,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     outputText->row++; //to be in range 1 - NB_ROW(25)
 
     //Check if all rows can be displayed properly
-    if(outputText->row + ((outputText->nbRowsUsed-1) * outputText->rowSpan)> NB_ROW) {
+    if(outputText->row + ((outputText->nbRowsUsed-1) * outputText->rowSpan) > NB_ROW) {
         outputText->row = NB_ROW - ((outputText->nbRowsUsed-1) * outputText->rowSpan);
     }
 
@@ -665,6 +665,11 @@ static void compute_nb_packet_first_page(PageWriterManager *pageWrMng) {
     for(uint8_t i=0; i<NB_ROW; i++) {
         if(pageWrMng->pages[0]->hasDisplayablePacket[i]) {
             pageWrMng->firstPageTotalPackets++;
+
+            //FIXME: we truncate after header + 2 lines
+            if (pageWrMng->firstPageTotalPackets == MAX_PACKETS)
+                for(uint8_t j=i+1; j<NB_ROW; j++)
+                    pageWrMng->pages[0]->hasDisplayablePacket[j] = 0;
         }
     }
 }
@@ -718,7 +723,6 @@ enum DataUnitID {
 //3 teletext packets in one PES Data field
 //Length of the data field => 46 bytes * 3 + 1 byte => 139 bytes
 //PES data field : 139 bytes
-#define MAX_PACKETS 3
 static struct __pes_data_field {
     uint8_t data_identifier;
     uint8_t data_unit_id[MAX_PACKETS];
@@ -746,6 +750,7 @@ static int pageWritingManagement(TeletextContext *s, PageWriterManager *pageWrMn
             dataField.data_unit_id[0] = DATA_UNIT_EBU_TELETEXT_SUBTITLE;
             dataField.line_offset_params[0] = CONCAT_BITS_LINE_OFFSET_PARAM(0x1,0xA);
 
+//FIXME: X/0 "acts as both a page identifier and a page terminating packet" so it shall be set last. Not an issue for NewFor validation.
             //fill header packet
             setMagazine_PacketNumber(&ttxPacket, (pageWrMng->pages[0]->pageNumber & 0x0700)>>8, 0);
             memcpy(ttxPacket.data_block, &pageWrMng->pages[0]->headerPacket.page_number_units, 40);
@@ -935,7 +940,10 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
     setHeaderPacket(s->subtitle_page, s->subtitle_page_num, 0x0000, s->controlbitSubtitlePage, dataHeaderSubtitlePage);
 
     s->pageWRMng = (PageWriterManager){0};
-    s->textAspect = (TeletextAspect){0}; // reset styling
+    s->textAspect.color = SPAC_ATTR_ALPHA_WHITE;
+    s->textAspect.align = CENTER;
+    s->textAspect.verticalPadding = 0.85;
+    s->textAspect.textSize = SPAC_ATTR_NORMAL_SIZE;
     s->controlbitSubtitlePage = ControlBits_default;
     s->nb_rows = 0;
 
