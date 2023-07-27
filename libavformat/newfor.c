@@ -123,7 +123,6 @@ static int newfor_write_page_off_air_internal(NewforContext *s)
         av_log(s, AV_LOG_ERROR, "Unable to write off-air command\n");
         return AVERROR(EIO);
     }
-    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
 
     return 0;
 }
@@ -147,7 +146,6 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
         av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=0x%X)\n", page_num);
         return AVERROR(EIO);
     }
-    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
 
     return page_num;
 }
@@ -196,7 +194,6 @@ static int newfor_write_page_on_air(URLContext *h)
         av_log(s, AV_LOG_ERROR, "Unable to write on-air command\n");
         return AVERROR(EIO);
     }
-    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
 
     return 0;
 }
@@ -227,6 +224,12 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
         for (int j=0; j<40; ++j) {
             *(page + 2 + j) = swap_byte(*(buf + 1 + i * teletext_pkt_size + 3 + j));
         }
+        if (0) {
+            fprintf(stdout, "NEWFOR[%02u]: ", row_num);
+            for (uint8_t col = 0; col < 40; col++) fprintf(stdout, "%02x ", *(page + 2 + col));
+            fprintf(stdout, "\n");
+        }
+        fprintf(stdout, "\n");
         row_num++;
     }
     read = 1 + n * teletext_pkt_size;
@@ -236,7 +239,6 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
         av_log(s, AV_LOG_ERROR, "Unable to send subtitle packets\n");
         return AVERROR(EIO);
     }
-    s->tcp_conn->prot->url_write(s->tcp_conn, NULL, 0); // flush
 
     NEWFOR_SAFE(newfor_write_page_on_air(h));
 
