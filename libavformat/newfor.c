@@ -85,6 +85,7 @@ static int newfor_open(URLContext *h, const char *uri, int flags)
     av_log(h, AV_LOG_TRACE, "newfor open \"%s\"\n", uri);
 
     strcpy(tcp_uri + 3, uri + 6);
+    h->flags = AVIO_FLAG_READ_WRITE;
     err = ffurl_open_whitelist(&s->tcp_conn, tcp_uri, h->flags,
                                 &h->interrupt_callback, &opts,
                                 h->protocol_whitelist, h->protocol_blacklist, h);
@@ -145,6 +146,13 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
     if(written != sizeof(page_init)) {
         av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=0x%X)\n", page_num);
         return AVERROR(EIO);
+    }
+
+    {
+        unsigned char res;
+        //int ret = 
+        s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
+        //printf("NEWFOR: send: %d (EOF=%d)\n", ret, AVERROR_EOF);
     }
 
     return page_num;
@@ -238,6 +246,13 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
     if(written != 2 + n * (2 + 40)) {
         av_log(s, AV_LOG_ERROR, "Unable to send subtitle packets\n");
         return AVERROR(EIO);
+    }
+
+    {
+        unsigned char res;
+        //int ret = 
+        s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
+        //printf("NEWFOR: init: %d (EOF=%d)\n", ret, AVERROR_EOF);
     }
 
     NEWFOR_SAFE(newfor_write_page_on_air(h));
