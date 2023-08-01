@@ -20,12 +20,14 @@
  */
 #include "libavutil/avassert.h"
 #include "libavutil/opt.h"
+#include "libavutil/time.h"
 #include "libavcodec/dvbtxt.h"
 #include "avformat.h" //av_url_split
 #include "url.h"
 
 #define NEWFOR_MAX_PKT_PER_PAGE 7
 #define NEWFOR_SAFE(a) { int ret = a; if(ret<0) return ret; }
+#define NEWFOR_WAIRFORANSWER 40000 // needed to avoid TCP agregation, despite putting the TCP_NODELAY option
 
 //The reference format is the MPEG2-TS payload format.
 const int teletext_pkt_size = 3/*pes fields*/ + 40/*teletext_page_size*/ + 3/*header*/;
@@ -124,6 +126,10 @@ static int newfor_write_page_off_air_internal(NewforContext *s)
         av_log(s, AV_LOG_ERROR, "Unable to write off-air command\n");
         return AVERROR(EIO);
     }
+    if (NEWFOR_WAIRFORANSWER > 0) {
+        unsigned char res;
+        s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
+    }
 
     return 0;
 }
@@ -147,12 +153,9 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
         av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=0x%X)\n", page_num);
         return AVERROR(EIO);
     }
-
-    {
+    if (NEWFOR_WAIRFORANSWER > 0) {
         unsigned char res;
-        //int ret = 
         s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
-        //printf("NEWFOR: send: %d (EOF=%d)\n", ret, AVERROR_EOF);
     }
 
     return page_num;
@@ -202,6 +205,10 @@ static int newfor_write_page_on_air(URLContext *h)
         av_log(s, AV_LOG_ERROR, "Unable to write on-air command\n");
         return AVERROR(EIO);
     }
+    if (NEWFOR_WAIRFORANSWER > 0) {
+        unsigned char res;
+        s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
+    }
 
     return 0;
 }
@@ -237,7 +244,6 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
             for (uint8_t col = 0; col < 40; col++) fprintf(stdout, "%02x ", *(page + 2 + col));
             fprintf(stdout, "\n");
         }
-        fprintf(stdout, "\n");
         row_num++;
     }
     read = 1 + n * teletext_pkt_size;
@@ -247,15 +253,17 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
         av_log(s, AV_LOG_ERROR, "Unable to send subtitle packets\n");
         return AVERROR(EIO);
     }
-
-    {
+    if (NEWFOR_WAIRFORANSWER > 0) {
         unsigned char res;
-        //int ret = 
         s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
-        //printf("NEWFOR: init: %d (EOF=%d)\n", ret, AVERROR_EOF);
     }
 
     NEWFOR_SAFE(newfor_write_page_on_air(h));
+
+    //TODO: remove avutil/time.h
+    // 1) send off_air when the subtitle is not displayed anymore
+    // 2) use the erasement flag if the page_num is the same to avoid blinking
+    av_usleep(500000);
 
     return read;
 }
