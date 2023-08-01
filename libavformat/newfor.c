@@ -86,7 +86,7 @@ static int newfor_open(URLContext *h, const char *uri, int flags)
 
     av_log(h, AV_LOG_TRACE, "newfor open \"%s\"\n", uri);
 
-    strcpy(tcp_uri + 3, uri + 6);
+    snprintf(tcp_uri+3, sizeof(tcp_uri)-3, "%s?tcp_nodelay=1&timeout=%d", uri+6, NEWFOR_WAIRFORANSWER);
     h->flags = AVIO_FLAG_READ_WRITE;
     err = ffurl_open_whitelist(&s->tcp_conn, tcp_uri, h->flags,
                                 &h->interrupt_callback, &opts,
