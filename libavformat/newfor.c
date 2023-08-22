@@ -20,7 +20,6 @@
  */
 #include "libavutil/avassert.h"
 #include "libavutil/opt.h"
-#include "libavutil/time.h"
 #include "libavcodec/dvbtxt.h"
 #include "avformat.h" //av_url_split
 #include "url.h"
@@ -63,6 +62,7 @@ static uint8_t hamming_8_4_decode(uint8_t a) {
 typedef struct NewforContext {
     const AVClass *class;
     URLContext *tcp_conn;
+    int curr_page_num;
 } NewforContext;
 
 #define OFFSET(x) offsetof(NewforContext, x)
@@ -145,8 +145,11 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
         hamming_8_4_coding(page_num % 0X10)           //units
     };
 
-    //TODO: optimization: use the erasement flag if the page_num is the same
-    NEWFOR_SAFE(newfor_write_page_off_air_internal(s));
+    //rely on the erasement flag unless the page num has changed
+    if (s->curr_page_num != page_num) {
+        NEWFOR_SAFE(newfor_write_page_off_air_internal(s));
+    }
+    s->curr_page_num = page_num;
 
     written = s->tcp_conn->prot->url_write(s->tcp_conn, page_init, sizeof(page_init));
     if(written != sizeof(page_init)) {
@@ -260,11 +263,6 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
 
     NEWFOR_SAFE(newfor_write_page_on_air(h));
 
-    //TODO: remove avutil/time.h
-    // 1) send off_air when the subtitle is not displayed anymore
-    // 2) use the erasement flag if the page_num is the same to avoid blinking
-    av_usleep(500000);
-
     return read;
 }
 
@@ -319,6 +317,7 @@ static int newfor_close(URLContext *h)
 {
     NewforContext *s = h->priv_data;
     av_log(h, AV_LOG_TRACE, "newfor close\n");
+    newfor_write_page_off_air_internal(s);
     newfor_connect_internal(s, 999);
     return 0;
 }

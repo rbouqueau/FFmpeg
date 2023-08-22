@@ -362,7 +362,7 @@ static void setHeaderPacket(TeletextPage *ttxPage, uint16_t pageNumber, uint16_t
     ttxPage->headerPacket.page_number_units = swap_byte(hamming_8_4_coding(pageNumber & 0x000F));
     ttxPage->headerPacket.page_number_tens = swap_byte(hamming_8_4_coding((pageNumber & 0x00F0)>>4));
     ttxPage->headerPacket.subcode_S1 = swap_byte(hamming_8_4_coding(subcode & 0x000F)); //get S1 subcode
-    ttxPage->headerPacket.subcode_S2_C4 = swap_byte(hamming_8_4_coding(CONCAT_BITS_SUBCODE_S2_C4((subcode & 0x0070)>>4,control_bits.C4_erasePage)));
+    ttxPage->headerPacket.subcode_S2_C4 = swap_byte(hamming_8_4_coding(CONCAT_BITS_SUBCODE_S2_C4((subcode & 0x0070)>>4, control_bits.C4_erasePage)));
     ttxPage->headerPacket.subcode_S3 =  swap_byte(hamming_8_4_coding((subcode & 0x0F00)>>8)); //get S3 subcode
     ttxPage->headerPacket.subcode_S4_C5_C6 = swap_byte(hamming_8_4_coding(CONCAT_BITS_SUBCODE_S4_C5_C6((subcode & 0x3000)>>12, control_bits.C5_newFlash, control_bits.C6_subtitle)));
     ttxPage->headerPacket.control_bits_C7__C10 = swap_byte(hamming_8_4_coding(CONCAT_BITS_C7_C8_C9_C10(control_bits.C7_suppressHeader, control_bits.C8_updateIndicator, control_bits.C9_interruptedSequence, control_bits.C10_inhibitDisplay)));
