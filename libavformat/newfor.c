@@ -114,6 +114,20 @@ static int newfor_get_page_num(const uint8_t *buf)
         return 0;
 }
 
+static int newfor_get_lang(const uint8_t *buf)
+{
+    const uint8_t *address_ptr = buf + 2;
+    const uint8_t *data = address_ptr + 2;
+	uint8_t address = (hamming_8_4_decode(swap_byte(address_ptr[1])) << 4) | hamming_8_4_decode(swap_byte(address_ptr[0]));
+	uint8_t y = (address >> 3) & 0x1f;
+
+	if(y == 0) {
+		uint8_t val = hamming_8_4_decode(swap_byte(data[7]));
+        return ((val & 0x8) >> 3) | ((val & 0x4) >> 1) | ((val & 0x2) << 1);
+    } else
+        return 0;
+}
+
 static int newfor_write_page_off_air_internal(NewforContext *s)
 {
     int written;
@@ -161,13 +175,13 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
         s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
     }
 
-    return page_num;
+    return 0;
 }
 
 static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size, int *read)
 {
     NewforContext *s = h->priv_data;
-    int page_num = 0;
+    int page_num = 0, lang = 0;
     const unsigned n_pkt = size / teletext_pkt_size;
 
     av_log(h, AV_LOG_TRACE, "newfor write page (init)\n");
@@ -180,6 +194,7 @@ static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size, i
             page_num = newfor_get_page_num(buf + *read + 1/*skip data_identifier*/ + 2);
 
             if(page_num != 0) {
+                lang = newfor_get_lang(buf + *read + 1/*skip data_identifier*/ + 2);
                 *read += 1; //add data_identifier byte
             } else
                 av_log(s, AV_LOG_DEBUG, "page num not located in packet %d/%d\n", i, n_pkt);
@@ -192,7 +207,10 @@ static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size, i
     if(page_num == 0x111) //home page //FIXME: find a more reliable way to identify it
         return 0;
 
-    return newfor_connect_internal(s, page_num);
+    NEWFOR_SAFE(newfor_connect_internal(s, page_num));
+    NEWFOR_SAFE(newfor_connect_internal(s, lang));
+
+    return page_num;
 }
 
 static int newfor_write_page_on_air(URLContext *h)

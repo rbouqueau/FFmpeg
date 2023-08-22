@@ -935,9 +935,11 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
     TeletextContext *s = avctx->priv_data;
     ASSDialog *dialog;
     int i;
+    uint8_t/*bool*/ lang[3] = {1,0,0};
 
     uint8_t dataHeaderSubtitlePage[32] = {0};
     formatHeaderText("Teletext Page", dataHeaderSubtitlePage);
+    setControlBits(&s->controlbitSubtitlePage, 0xBD/*1011 1101*/, lang);
     setHeaderPacket(s->subtitle_page, s->subtitle_page_num, 0x0000, s->controlbitSubtitlePage, dataHeaderSubtitlePage);
 
     s->pageWRMng = (PageWriterManager){0};
