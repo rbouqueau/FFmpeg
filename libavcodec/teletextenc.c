@@ -530,6 +530,7 @@ static void insertFormattedSub(TeletextDispText *outputText, int index, uint8_t 
     }
 
     if(C6_subtitle) { //Put start and end box
+        outputText->formattedText[paddingLeftOffset + startOffset-3 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_DOUBLE_HEIGHT;
         outputText->formattedText[paddingLeftOffset + startOffset-2 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
         outputText->formattedText[paddingLeftOffset + startOffset-1 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_START_BOX;
         outputText->formattedText[paddingLeftOffset + startOffset + rowCharacterUsage+0 + CHARACTER_PER_ROW * currentRow] = SPAC_ATTR_END_BOX;
@@ -570,7 +571,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     outputText->row = s->nb_rows + (NB_ROW-1) * (textAspect->verticalPadding);
     av_log(s->avctx, AV_LOG_TRACE, "Display line : %d | text : %s  color : %d  padding top %f\n", outputText->row, inputText, textAspect->color, textAspect->verticalPadding);
 
-    outputText->rowSpan = 1;
+    outputText->rowSpan = 2; //double height
 
     //Detects special characters in a string and convert it according to the national option
     inputTextNatOpt = applyNationalOption(s, inputText, inputTextSize, C12_C13_C14_nationalOption);
@@ -586,8 +587,8 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
 
     //Add offset due to subtitle box
     if(C6_subtitle) {
-        startOffset += 2;
-        endOffset += 1;
+        startOffset += 3; //double height + 2x start box
+        endOffset += 1; //end box
     }
 
     numberSpacingAttrib = startOffset + endOffset; //Compute the total number of added spacing attributes
