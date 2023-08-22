@@ -26,7 +26,7 @@
 #include "url.h"
 
 #define NEWFOR_MAX_PKT_PER_PAGE 7
-#define NEWFOR_SAFE(a) { int ret = a; if(ret<0) return ret; }
+#define NEWFOR_SAFE(a) { int ret=a; if(ret<0) return ret; }
 #define NEWFOR_WAIRFORANSWER 40000 // needed to avoid TCP agregation, despite putting the TCP_NODELAY option
 
 //The reference format is the MPEG2-TS payload format.
@@ -219,7 +219,7 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
     int written;
     int read = 0;
     unsigned n = (size - (size % teletext_pkt_size)/*skip header*/) / teletext_pkt_size;
-    int row_num = 23 - n;
+    int row_num = 24 - n * 2;
     uint8_t pages[2/*header*/ + NEWFOR_MAX_PKT_PER_PAGE * (2/*RH RL*/ + 40/*data*/)] = {0};
 
     av_log(h, AV_LOG_TRACE, "newfor write page (send data)\n");
