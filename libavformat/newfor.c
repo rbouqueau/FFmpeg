@@ -62,7 +62,7 @@ static uint8_t hamming_8_4_decode(uint8_t a) {
 typedef struct NewforContext {
     const AVClass *class;
     URLContext *tcp_conn;
-    int curr_page_num;
+    int page_num;
 } NewforContext;
 
 #define OFFSET(x) offsetof(NewforContext, x)
@@ -159,12 +159,6 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
         hamming_8_4_coding(page_num % 0X10)           //units
     };
 
-    //rely on the erasement flag unless the page num has changed
-    if (s->curr_page_num != page_num) {
-        NEWFOR_SAFE(newfor_write_page_off_air_internal(s));
-    }
-    s->curr_page_num = page_num;
-
     written = s->tcp_conn->prot->url_write(s->tcp_conn, page_init, sizeof(page_init));
     if(written != sizeof(page_init)) {
         av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=0x%X)\n", page_num);
@@ -206,11 +200,14 @@ static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size, i
         return 0;
     if(page_num == 0x111) //home page //FIXME: find a more reliable way to identify it
         return 0;
+    if (s->page_num != page_num) {
+        NEWFOR_SAFE(newfor_write_page_off_air_internal(s));
+        NEWFOR_SAFE(newfor_connect_internal(s, page_num));
+        NEWFOR_SAFE(newfor_connect_internal(s, lang));
+        s->page_num = page_num;
+    }
 
-    NEWFOR_SAFE(newfor_connect_internal(s, page_num));
-    NEWFOR_SAFE(newfor_connect_internal(s, lang));
-
-    return page_num;
+    return 0;
 }
 
 static int newfor_write_page_on_air(URLContext *h)
@@ -286,19 +283,20 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
 
 static int newfor_write_page(URLContext *h, const uint8_t *buf, int size)
 {
+    NewforContext *s = h->priv_data;
     int total_read = 0;
 
     while (total_read < size) {
-        int page_num = 0, read = 0;
-        NEWFOR_SAFE(page_num = newfor_write_page_init(h, buf, size - total_read, &read));
+        int read = 0;
+        NEWFOR_SAFE(newfor_write_page_init(h, buf, size - total_read, &read));
 
         //skip line 0 that signals the page_num
         buf += teletext_pkt_size;
         total_read += teletext_pkt_size;
         read -= teletext_pkt_size;
 
-        if (page_num != 0 && read > 0)
-            NEWFOR_SAFE(newfor_write_page_send_data(h, buf, read, page_num));
+        if (s->page_num != 0 && read > 0)
+            NEWFOR_SAFE(newfor_write_page_send_data(h, buf, read, s->page_num));
 
         buf += read;
         total_read += read;
