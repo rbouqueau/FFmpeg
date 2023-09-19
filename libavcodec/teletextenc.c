@@ -1014,7 +1014,7 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
 
     //Home Page
 #ifdef ENABLE_HOME_PAGE
-    s->home_page_num = 0x111;
+    s->home_page_num = 0x100;
     s->home_page = av_calloc(1, sizeof(TeletextPage));
     if(!s->home_page) {
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
@@ -1023,7 +1023,7 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
 #endif
 
     //Subtitle Page
-    s->subtitle_page_num = 0x100;
+    s->subtitle_page_num = 0x888;
     s->subtitle_page = av_calloc(1, sizeof(TeletextPage));
     if(!s->subtitle_page) {
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");

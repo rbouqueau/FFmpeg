@@ -221,12 +221,14 @@ static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size, i
         return 0;
     if (s->page_num != page_num) {
 #if 0
+        NEWFOR_SAFE(newfor_connect_internal(s, page_num));
+        NEWFOR_SAFE(newfor_connect_internal(s, lang));
         NEWFOR_SAFE(newfor_write_page_off_air_internal(s));
 #else
         NEWFOR_SAFE(newfor_write_telx_validate(s));
-#endif
         NEWFOR_SAFE(newfor_connect_internal(s, page_num));
         NEWFOR_SAFE(newfor_connect_internal(s, lang));
+#endif
         s->page_num = page_num;
     }
 
