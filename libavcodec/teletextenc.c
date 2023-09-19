@@ -594,7 +594,7 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     numberSpacingAttrib = startOffset + endOffset; //Compute the total number of added spacing attributes
     rowCharacterUsage = 0;
     lastSpacePos = 0;
-    outputText->formattedText = av_malloc(CHARACTER_PER_ROW); //Allocate for 1 row
+    outputText->formattedText = av_calloc(1, CHARACTER_PER_ROW); //Allocate for 1 row
     if(!outputText->formattedText) {
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
         return AVERROR(ENOMEM);
