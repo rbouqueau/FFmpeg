@@ -26,7 +26,7 @@
 
 #define NEWFOR_MAX_PKT_PER_PAGE 7
 #define NEWFOR_SAFE(a) { int ret=a; if(ret<0) return ret; }
-#define NEWFOR_WAIRFORANSWER 40000 // needed to avoid TCP agregation, despite putting the TCP_NODELAY option
+#define NEWFOR_WAITRFORANSWER 40000 // needed to avoid TCP agregation, despite putting the TCP_NODELAY option
 
 //The reference format is the MPEG2-TS payload format.
 const int teletext_pkt_size = 3/*pes fields*/ + 40/*teletext_page_size*/ + 3/*header*/;
@@ -86,7 +86,7 @@ static int newfor_open(URLContext *h, const char *uri, int flags)
 
     av_log(h, AV_LOG_TRACE, "newfor open \"%s\"\n", uri);
 
-    snprintf(tcp_uri+3, sizeof(tcp_uri)-3, "%s?tcp_nodelay=1&timeout=%d", uri+6, NEWFOR_WAIRFORANSWER);
+    snprintf(tcp_uri+3, sizeof(tcp_uri)-3, "%s?tcp_nodelay=1&timeout=%d", uri+6, NEWFOR_WAITRFORANSWER);
     h->flags = AVIO_FLAG_READ_WRITE;
     err = ffurl_open_whitelist(&s->tcp_conn, tcp_uri, h->flags,
                                 &h->interrupt_callback, &opts,
@@ -140,7 +140,26 @@ static int newfor_write_page_off_air_internal(NewforContext *s)
         av_log(s, AV_LOG_ERROR, "Unable to write off-air command\n");
         return AVERROR(EIO);
     }
-    if (NEWFOR_WAIRFORANSWER > 0) {
+    if (NEWFOR_WAITRFORANSWER > 0) {
+        unsigned char res;
+        s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
+    }
+
+    return 0;
+}
+
+/* corresponds to the "O1 + CRLF" command */
+static int newfor_write_telx_validate(NewforContext *s)
+{
+    int written;
+    uint8_t telx_inserter_validation[5] = { 0x4F, 0x31, 0x0D, 0x0A };
+
+    written = s->tcp_conn->prot->url_write(s->tcp_conn, telx_inserter_validation, sizeof(telx_inserter_validation));
+    if(written != sizeof(telx_inserter_validation)) {
+        av_log(s, AV_LOG_ERROR, "Unable to send the teletext inserter validation\n");
+        return AVERROR(EIO);
+    }
+    if (NEWFOR_WAITRFORANSWER > 0) {
         unsigned char res;
         s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
     }
@@ -164,7 +183,7 @@ static int newfor_connect_internal(NewforContext *s, int page_num)
         av_log(s, AV_LOG_ERROR, "Unable to write page init command (page num=0x%X)\n", page_num);
         return AVERROR(EIO);
     }
-    if (NEWFOR_WAIRFORANSWER > 0) {
+    if (NEWFOR_WAITRFORANSWER > 0) {
         unsigned char res;
         s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
     }
@@ -201,7 +220,11 @@ static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size, i
     if(page_num == 0x111) //home page //FIXME: find a more reliable way to identify it
         return 0;
     if (s->page_num != page_num) {
+#if 0
         NEWFOR_SAFE(newfor_write_page_off_air_internal(s));
+#else
+        NEWFOR_SAFE(newfor_write_telx_validate(s));
+#endif
         NEWFOR_SAFE(newfor_connect_internal(s, page_num));
         NEWFOR_SAFE(newfor_connect_internal(s, lang));
         s->page_num = page_num;
@@ -223,7 +246,7 @@ static int newfor_write_page_on_air(URLContext *h)
         av_log(s, AV_LOG_ERROR, "Unable to write on-air command\n");
         return AVERROR(EIO);
     }
-    if (NEWFOR_WAIRFORANSWER > 0) {
+    if (NEWFOR_WAITRFORANSWER > 0) {
         unsigned char res;
         s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
     }
@@ -272,7 +295,7 @@ static int newfor_write_page_send_data(URLContext *h, const uint8_t *buf, int si
         av_log(s, AV_LOG_ERROR, "Unable to send subtitle packets\n");
         return AVERROR(EIO);
     }
-    if (NEWFOR_WAIRFORANSWER > 0) {
+    if (NEWFOR_WAITRFORANSWER > 0) {
         unsigned char res;
         s->tcp_conn->prot->url_read(s->tcp_conn, &res, 1);
     }
