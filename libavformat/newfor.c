@@ -67,7 +67,8 @@ typedef struct NewforContext {
 
 #define OFFSET(x) offsetof(NewforContext, x)
 static const AVOption options[] = {
-    { NULL }
+    {"page_num", "Force *decimal* page number (default: inherited from upstream).", OFFSET(page_num), AV_OPT_TYPE_INT, {.i64 = -1}, -1, 0x999, AV_OPT_FLAG_ENCODING_PARAM},
+    {NULL},
 };
 
 static const AVClass newfor_class = {
@@ -81,12 +82,22 @@ static int newfor_open(URLContext *h, const char *uri, int flags)
 {
     NewforContext *s = h->priv_data;
     char tcp_uri[1024] = "tcp";
+    int n = sizeof(tcp_uri)-3;
+    char *p = NULL;
     AVDictionary *opts = NULL;
     int err;
 
     av_log(h, AV_LOG_TRACE, "newfor open \"%s\"\n", uri);
 
-    snprintf(tcp_uri+3, sizeof(tcp_uri)-3, "%s?tcp_nodelay=1&timeout=%d", uri+6, NEWFOR_WAITRFORANSWER);
+    p = strchr(uri, '?');
+    if (p) {
+        n = p-uri-6;
+        p = strstr(p, "page_num=");
+        if (p)
+            s->page_num = strtol(p+9, NULL, 16);
+    }
+    snprintf(tcp_uri+3, n+1, "%s", uri+6);
+    snprintf(tcp_uri+strlen(tcp_uri), sizeof(tcp_uri)-strlen(tcp_uri), "?tcp_nodelay=1&timeout=%d", NEWFOR_WAITRFORANSWER);
     h->flags = AVIO_FLAG_READ_WRITE;
     err = ffurl_open_whitelist(&s->tcp_conn, tcp_uri, h->flags,
                                 &h->interrupt_callback, &opts,
@@ -220,16 +231,18 @@ static int newfor_write_page_init(URLContext *h, const uint8_t *buf, int size, i
     if(page_num == 0x111) //home page //FIXME: find a more reliable way to identify it
         return 0;
     if (s->page_num != page_num) {
+        if (s->page_num == -1)
+            s->page_num = page_num;
+
 #if 0
-        NEWFOR_SAFE(newfor_connect_internal(s, page_num));
+        NEWFOR_SAFE(newfor_connect_internal(s, s->page_num));
         NEWFOR_SAFE(newfor_connect_internal(s, lang));
         NEWFOR_SAFE(newfor_write_page_off_air_internal(s));
 #else
         NEWFOR_SAFE(newfor_write_telx_validate(s));
-        NEWFOR_SAFE(newfor_connect_internal(s, page_num));
+        NEWFOR_SAFE(newfor_connect_internal(s, s->page_num));
         NEWFOR_SAFE(newfor_connect_internal(s, lang));
 #endif
-        s->page_num = page_num;
     }
 
     return 0;
