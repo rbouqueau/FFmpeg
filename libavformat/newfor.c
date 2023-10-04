@@ -163,7 +163,7 @@ static int newfor_write_page_off_air_internal(NewforContext *s)
 static int newfor_write_telx_validate(NewforContext *s)
 {
     int written;
-    uint8_t telx_inserter_validation[5] = { 0x4F, 0x31, 0x0D, 0x0A };
+    uint8_t telx_inserter_validation[] = { 0x4F, 0x31, 0x0D, 0x0A };
 
     written = s->tcp_conn->prot->url_write(s->tcp_conn, telx_inserter_validation, sizeof(telx_inserter_validation));
     if(written != sizeof(telx_inserter_validation)) {
@@ -181,7 +181,7 @@ static int newfor_write_telx_validate(NewforContext *s)
 static int newfor_connect_internal(NewforContext *s, int page_num)
 {
     int written;
-    uint8_t page_init[5] = {
+    uint8_t page_init[] = {
         odd_parity_coding(0x0E),
         hamming_8_4_coding(0x00),
         hamming_8_4_coding(page_num / 0x100),         //hundreds
