@@ -81,8 +81,8 @@ static const AVClass newfor_class = {
 static int newfor_open(URLContext *h, const char *uri, int flags)
 {
     NewforContext *s = h->priv_data;
-    char tcp_uri[1024] = "tcp";
-    int n = sizeof(tcp_uri)-3;
+    char tcp_uri[1024] = {0};
+    int n = sizeof(tcp_uri);
     char *p = NULL;
     AVDictionary *opts = NULL;
     int err;
@@ -91,12 +91,12 @@ static int newfor_open(URLContext *h, const char *uri, int flags)
 
     p = strchr(uri, '?');
     if (p) {
-        n = p-uri-6;
+        n = p-uri-9+6+1;
         p = strstr(p, "page_num=");
         if (p)
             s->page_num = strtol(p+9, NULL, 16);
     }
-    snprintf(tcp_uri+3, n+1, "%s", uri+6);
+    snprintf(tcp_uri, n, "tcp://%s", uri+9);
     snprintf(tcp_uri+strlen(tcp_uri), sizeof(tcp_uri)-strlen(tcp_uri), "?tcp_nodelay=1&timeout=%d", NEWFOR_WAITRFORANSWER);
     h->flags = AVIO_FLAG_READ_WRITE;
     err = ffurl_open_whitelist(&s->tcp_conn, tcp_uri, h->flags,
@@ -374,6 +374,7 @@ static int newfor_close(URLContext *h)
     av_log(h, AV_LOG_TRACE, "newfor close\n");
     newfor_write_page_off_air_internal(s);
     newfor_connect_internal(s, 999);
+    if (s->tcp_conn) ffurl_closep(&s->tcp_conn);
     return 0;
 }
 
