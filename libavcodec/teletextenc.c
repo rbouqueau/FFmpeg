@@ -33,6 +33,7 @@
 #include "codec_internal.h"
 #include "put_bits.h"
 #include "libavutil/internal.h"
+#include "libavutil/opt.h"
 #include "dvbtxt.h"
 #include "ass_split.h"
 
@@ -325,11 +326,13 @@ typedef struct {
     SpacingAttributes textSize; /**text size (normal, double height, double width or double size)*/
     float verticalPadding;      /**vertical padding should be between 0 and 1*/
     TextAlign align;            /**text alignement*/
+    int blackbg;                /**bool, if true the subtitle will be displayed on a black background*/
 } TeletextAspect;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
+    AVClass *class;
     AVCodecContext *avctx;
     ASSSplitContext *ass_ctx;
     PageWriterManager pageWRMng;
@@ -342,6 +345,9 @@ typedef struct {
     TeletextAspect textAspect;
     ControlBits controlbitSubtitlePage;
     int nb_rows;
+
+    // options
+    int blackbg; // bool
 } TeletextContext;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -525,8 +531,14 @@ static void insertFormattedSub(TeletextDispText *outputText, int index, uint8_t 
     }
 
     //Go in first (affect the whole line)
-    if(textAspect->color != SPAC_ATTR_ALPHA_WHITE) {
-        outputText->formattedText[paddingLeftOffset + CHARACTER_PER_ROW * currentRow] = textAspect->color;
+    {
+        uint8_t local_index = paddingLeftOffset + CHARACTER_PER_ROW * currentRow;
+        if(textAspect->blackbg) {
+            outputText->formattedText[local_index++] = SPAC_ATTR_BLACK_BACKGROUND;
+        }
+        if(textAspect->color != SPAC_ATTR_ALPHA_WHITE) {
+            outputText->formattedText[local_index++] = textAspect->color;
+        }
     }
 
     if(C6_subtitle) { //Put start and end box
@@ -583,6 +595,12 @@ static int formatDisplayableText(TeletextContext *s, const char *inputText, uint
     //Apply the color for each rows
     if(textAspect->color != SPAC_ATTR_ALPHA_WHITE) {
         startOffset += 1;
+    }
+
+    //Black background
+    if (s->blackbg) {
+        startOffset += 1;
+        textAspect->blackbg = s->blackbg;
     }
 
     //Add offset due to subtitle box
@@ -1058,11 +1076,25 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
     return 0;
 }
 
+#define OFFSET(x) offsetof(TeletextContext, x)
+static const AVOption options[] = {
+    { "blackbg", "Use black background instead of default one", OFFSET(blackbg), AV_OPT_TYPE_BOOL, { .i64 = 1 }, 0, 1, AV_OPT_FLAG_ENCODING_PARAM|AV_OPT_FLAG_SUBTITLE_PARAM, NULL },
+    { NULL },
+};
+
+static const AVClass teletext_enc_class = {
+    .class_name = "teletext",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+
 const FFCodec ff_teletext_encoder = {
     .p.name         = "teletext",
     CODEC_LONG_NAME("Teletext subtitle"),
     .p.type         = AVMEDIA_TYPE_SUBTITLE,
     .p.id           = AV_CODEC_ID_DVB_TELETEXT,
+    .p.priv_class     = &teletext_enc_class,
     .priv_data_size = sizeof(TeletextContext),
     .init           = teletext_encode_init,
     FF_CODEC_ENCODE_SUB_CB(teletext_encode_frame),
