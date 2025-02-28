@@ -963,7 +963,6 @@ static int teletext_encode_frame(AVCodecContext *avctx, uint8_t *buf,
     s->pageWRMng = (PageWriterManager){0};
     s->textAspect.color = SPAC_ATTR_ALPHA_WHITE;
     s->textAspect.align = CENTER;
-    s->textAspect.verticalPadding = 0.85;
     s->textAspect.textSize = SPAC_ATTR_NORMAL_SIZE;
     s->controlbitSubtitlePage = ControlBits_default;
     s->nb_rows = 0;
@@ -1078,7 +1077,8 @@ static av_cold int teletext_encode_init(AVCodecContext *avctx) {
 
 #define OFFSET(x) offsetof(TeletextContext, x)
 static const AVOption options[] = {
-    { "blackbg", "Use black background instead of default one", OFFSET(blackbg), AV_OPT_TYPE_BOOL, { .i64 = 1 }, 0, 1, AV_OPT_FLAG_ENCODING_PARAM|AV_OPT_FLAG_SUBTITLE_PARAM, NULL },
+    { "blackbg",  "Use black background instead of default one", OFFSET(blackbg), AV_OPT_TYPE_BOOL, { .i64 = 1 }, 0, 1, AV_OPT_FLAG_ENCODING_PARAM|AV_OPT_FLAG_SUBTITLE_PARAM, NULL },
+    { "vpad", "Vertical padding between 0 and 1 (default 0.85)", OFFSET(textAspect.verticalPadding), AV_OPT_TYPE_FLOAT, { .dbl = 0.85 }, 0, 1, AV_OPT_FLAG_ENCODING_PARAM|AV_OPT_FLAG_SUBTITLE_PARAM, NULL },
     { NULL },
 };
 
